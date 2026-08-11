@@ -19,5 +19,7 @@ Assistant entity — no YAML or Jinja required.
 - This add-on is Ingress-only; it does not expose a port to the LAN.
 - Values are pushed via the Home Assistant Supervisor API
   (`/api/states/<entity_id>`), so entities behave as HA-managed states without
-  a backing integration (they will not survive a full HA Core restart until a
-  new MQTT message re-populates them).
+  a backing integration. On add-on startup, the last known value of every
+  mapping is re-pushed to HA, so entities keep their last value across HA
+  Core / add-on restarts instead of disappearing until the next matching
+  MQTT message arrives.

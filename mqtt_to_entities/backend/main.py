@@ -56,6 +56,18 @@ def _apply_mapping(mapping: dict[str, Any], state: TopicState) -> None:
 mqtt_manager = MqttManager(on_message=_on_mqtt_message)
 
 
+@app.on_event("startup")
+def _restore_last_values() -> None:
+    # last_value is already the post-transform state; re-push it as-is so the
+    # entity keeps its last known value across HA Core / add-on restarts
+    # instead of disappearing until the next matching MQTT message arrives.
+    for mapping in mappings_store.list_mappings():
+        last_value = mapping.get("last_value")
+        if last_value is None:
+            continue
+        ha_api.set_state(mapping["entity_id"], last_value)
+
+
 class BrokerConfigIn(BaseModel):
     host: str
     port: int = 1883
