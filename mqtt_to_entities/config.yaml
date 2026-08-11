@@ -2,7 +2,7 @@ name: "MQTT to Entities"
 version: "0.1.0"
 slug: "mqtt_to_entities"
 description: "Discover MQTT topics and map JSON fields to Home Assistant entities, no YAML required"
-url: "https://github.com/home-assistant"
+url: "https://github.com/aasayag-hash/mqtt_to_entities"
 arch:
   - amd64
   - aarch64

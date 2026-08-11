@@ -1,23 +1,14 @@
-# MQTT to Entities
+# mqtt_to_entities
 
-Browse your MQTT broker's full topic tree, inspect retained JSON payloads, and
-map any field (including array items, by index or by `field=value`) to a Home
-Assistant entity — no YAML or Jinja required.
+Repositorio de add-ons de Home Assistant.
 
-## Features
+## Instalación
 
-- Connects to its own MQTT broker (independent from Home Assistant's), configured
-  from the **Conexión** tab.
-- Subscribes to `#` and builds a live topic tree with the last payload per topic.
-- **Explorar** tab: browse the tree, view JSON, click a field to create a mapping.
-- **Entidades** tab: list, edit, and delete existing mappings.
-- Supported entity domains: `sensor`, `binary_sensor`, `switch`, `number`, `text`, `select`.
-- Mappings persist in `/data/mappings.json` and survive add-on restarts.
+1. En Home Assistant: **Configuración → Add-ons → Tienda de add-ons**.
+2. Menú (⋮) superior derecho → **Repositorios**.
+3. Agregar: `https://github.com/aasayag-hash/mqtt_to_entities`
+4. Instalar el add-on **MQTT to Entities**.
 
-## Notes
+## Add-ons incluidos
 
-- This add-on is Ingress-only; it does not expose a port to the LAN.
-- Values are pushed via the Home Assistant Supervisor API
-  (`/api/states/<entity_id>`), so entities behave as HA-managed states without
-  a backing integration (they will not survive a full HA Core restart until a
-  new MQTT message re-populates them).
+- [`mqtt_to_entities`](mqtt_to_entities/README.md) — explora el árbol de topics de un broker MQTT y mapea campos de payloads JSON (incluyendo campos dentro de arrays) al estado de entidades de Home Assistant (`sensor`, `binary_sensor`, `switch`, `number`, `text`, `select`), sin YAML ni Jinja.
