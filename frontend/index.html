@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MQTT to Entities</title>
+  <link rel="stylesheet" href="static/style.css" />
+</head>
+<body>
+  <header>
+    <h1>MQTT to Entities</h1>
+    <nav id="tabs">
+      <button class="tab-btn active" data-tab="explorar">Explorar</button>
+      <button class="tab-btn" data-tab="entidades">Entidades</button>
+      <button class="tab-btn" data-tab="conexion">Conexi&oacute;n</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="tab-explorar" class="tab-panel active">
+      <div class="explorar-layout">
+        <div class="tree-panel">
+          <h2>Topics</h2>
+          <div id="topic-tree"></div>
+        </div>
+        <div class="payload-panel">
+          <h2>Payload</h2>
+          <div id="topic-title"></div>
+          <pre id="topic-json"></pre>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-entidades" class="tab-panel">
+      <h2>Entidades mapeadas</h2>
+      <table id="mappings-table">
+        <thead>
+          <tr>
+            <th>Topic</th>
+            <th>Path</th>
+            <th>Entity ID</th>
+            <th>Dominio</th>
+            <th>&Uacute;ltimo valor</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section id="tab-conexion" class="tab-panel">
+      <h2>Conexi&oacute;n al broker MQTT</h2>
+      <form id="connection-form">
+        <label>Host <input type="text" id="conn-host" required /></label>
+        <label>Puerto <input type="number" id="conn-port" value="1883" required /></label>
+        <label>Usuario <input type="text" id="conn-username" /></label>
+        <label>Contrase&ntilde;a <input type="password" id="conn-password" /></label>
+        <div class="actions">
+          <button type="submit">Conectar</button>
+          <button type="button" id="btn-reconnect">Reconectar</button>
+        </div>
+      </form>
+      <p>Estado: <span id="conn-status">desconocido</span></p>
+      <p id="conn-error" class="error"></p>
+    </section>
+  </main>
+
+  <div id="mapping-modal" class="modal hidden">
+    <div class="modal-content">
+      <h2>Nuevo mapeo</h2>
+      <form id="mapping-form">
+        <p><strong>Topic:</strong> <span id="mapping-topic"></span></p>
+        <label>Campo
+          <select id="mapping-field-path"></select>
+        </label>
+        <label>Entity ID <input type="text" id="mapping-entity-id" placeholder="sensor.mi_sensor" required /></label>
+        <label>Dominio
+          <select id="mapping-domain">
+            <option value="sensor">sensor</option>
+            <option value="binary_sensor">binary_sensor</option>
+            <option value="switch">switch</option>
+            <option value="number">number</option>
+            <option value="text">text</option>
+            <option value="select">select</option>
+          </select>
+        </label>
+
+        <div id="domain-config-sensor" class="domain-config">
+          <label>Unidad de medida <input type="text" id="cfg-unit" placeholder="&deg;C, %, kWh..." /></label>
+        </div>
+
+        <div id="domain-config-onoff" class="domain-config hidden">
+          <label>Valores que significan ON (separados por coma) <input type="text" id="cfg-on-values" /></label>
+          <label>Valores que significan OFF (separados por coma) <input type="text" id="cfg-off-values" /></label>
+        </div>
+
+        <div id="domain-config-number" class="domain-config hidden">
+          <label>M&iacute;nimo <input type="number" id="cfg-min" /></label>
+          <label>M&aacute;ximo <input type="number" id="cfg-max" /></label>
+          <label>Step <input type="number" id="cfg-step" step="any" /></label>
+        </div>
+
+        <div id="domain-config-select" class="domain-config hidden">
+          <label>Opciones v&aacute;lidas (separadas por coma) <input type="text" id="cfg-options" /></label>
+        </div>
+
+        <div class="actions">
+          <button type="submit">Guardar</button>
+          <button type="button" id="mapping-cancel">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="static/app.js"></script>
+</body>
+</html>

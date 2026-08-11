@@ -1,0 +1,21 @@
+name: "MQTT to Entities"
+version: "0.1.0"
+slug: "mqtt_to_entities"
+description: "Discover MQTT topics and map JSON fields to Home Assistant entities, no YAML required"
+url: "https://github.com/home-assistant"
+arch:
+  - amd64
+  - aarch64
+  - armv7
+init: false
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:transit-connection-variant
+panel_title: "MQTT to Entities"
+hassio_api: true
+homeassistant_api: true
+map: []
+options: {}
+schema: {}
+startup: services
+boot: auto
