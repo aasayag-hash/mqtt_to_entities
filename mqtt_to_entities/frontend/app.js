@@ -904,9 +904,24 @@ function renderBrokers() {
       if (!window.confirm(`¿Borrar ${label}? Las entidades que dependen de él dejarán de actualizarse.`)) {
         return;
       }
-      await fetch(`${API_BASE}api/brokers/${btn.dataset.id}`, { method: "DELETE" });
+      const res = await fetch(`${API_BASE}api/brokers/${btn.dataset.id}`, {
+        method: "DELETE",
+      });
       if (editingBrokerId === btn.dataset.id) cancelEditBroker();
       if (selectedBrokerId === btn.dataset.id) selectedBrokerId = null;
+
+      // The delete can succeed in memory but fail to persist (full or
+      // read-only /data), in which case the broker comes back on restart.
+      // Swallowing that left the row gone with no explanation.
+      if (!res.ok) {
+        let detail = `Error HTTP ${res.status}`;
+        try {
+          detail = (await res.json()).detail || detail;
+        } catch (err) {
+          /* keep the HTTP status */
+        }
+        $("#conn-error").textContent = detail;
+      }
       loadBrokers();
     });
   });

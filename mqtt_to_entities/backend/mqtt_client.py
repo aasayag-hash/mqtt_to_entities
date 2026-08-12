@@ -151,10 +151,16 @@ class BrokerConnection:
             self._start_client()
 
     def disconnect(self) -> None:
-        self._stop = True
-        self._teardown_client()
-        self._set_status("disconnected")
-        self._connected_at = None
+        # Same lock as connect() and the retry loop's rebuild: without it, a
+        # retry could be sitting between its _stop check and _open_client(), and
+        # would then start a fresh network loop that nobody ever stops -- a
+        # client still subscribed to "#" on a broker already removed from the
+        # pool. _state_lock is an RLock, so connect() can still call this.
+        with self._state_lock:
+            self._stop = True
+            self._teardown_client()
+            self._set_status("disconnected")
+            self._connected_at = None
 
     def reconnect(self) -> None:
         self.connect()
@@ -260,8 +266,16 @@ class BrokerConnection:
 
             attempt += 1
             try:
-                self._teardown_client()
-                self._open_client()
+                # Rebuild under _state_lock and re-check _stop inside it: a
+                # concurrent disconnect() (broker removed, or the add_broker
+                # rollback) could otherwise land between the check above and
+                # here, and this thread would start a network loop nobody ever
+                # stops -- still subscribed to "#" on a deleted broker.
+                with self._state_lock:
+                    if self._stop:
+                        return
+                    self._teardown_client()
+                    self._open_client()
                 # _handle_connect flips the status once the broker answers; give
                 # it a moment before deciding this attempt failed.
                 deadline = time.monotonic() + CONNECT_WAIT_SECONDS

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.19
+
+Correcciones de una revisión del código, una de ellas importante:
+
+- **Corregido (importante)**: al eliminar un broker (o al descartarse uno por no poder guardarse), en cierto momento podía quedar una conexión al servidor MQTT **todavía activa y suscrita**, invisible para la aplicación, alimentando entidades de un broker que ya no existía. Se reprodujo el problema y ahora la desconexión y el reintento se coordinan correctamente.
+- **Corregido**: si al borrar un broker fallaba el guardado en disco, la fila desaparecía de la lista sin ningún aviso y el broker reaparecía al reiniciar el add-on. Ahora el error se muestra en pantalla.
+- **Corregido**: con un fallo intermitente de disco (que falla y funciona alternadamente), el log volvía a llenarse de errores repetidos. Ahora hace falta que el guardado funcione varias veces seguidas para considerar el problema resuelto.
+- **Mejorado**: el mensaje del log al resolverse un problema ya no se contradice a sí mismo (decía "No se pudo guardar...: resuelto").
+
 ## 1.18
 
 Cuatro correcciones de robustez para casos poco frecuentes pero molestos (ninguna cambia el uso normal):

@@ -166,8 +166,18 @@ def _check_stale_mappings() -> None:
 # /data, full disk) is reported once instead of every 30s forever.
 _watchdog_failures: dict[str, int] = {}
 
+# Consecutive successes per task since the last failure. A single success used to
+# reset the failure count, so an intermittent fault (ENOSPC hovering at the
+# threshold) alternated failure/success and logged a fresh traceback every other
+# tick -- more noise than before the suppression existed.
+_watchdog_successes: dict[str, int] = {}
+
 # After this many consecutive failures, stop logging until it recovers.
 MAX_REPEATED_FAILURE_LOGS = 3
+
+# Successes required before a task is considered healthy again and its failure
+# count is cleared.
+SUCCESSES_TO_CLEAR_FAILURES = 3
 
 
 def _run_watchdog_task(name: str, task: Callable[[], None], message: str) -> None:
@@ -181,6 +191,7 @@ def _run_watchdog_task(name: str, task: Callable[[], None], message: str) -> Non
     try:
         task()
     except Exception as exc:
+        _watchdog_successes.pop(name, None)
         failures = _watchdog_failures.get(name, 0) + 1
         _watchdog_failures[name] = failures
         if failures == 1:
@@ -194,8 +205,28 @@ def _run_watchdog_task(name: str, task: Callable[[], None], message: str) -> Non
             )
         return
 
-    if _watchdog_failures.pop(name, 0):
-        logger.info("%s: resuelto.", message)
+    if name not in _watchdog_failures:
+        return
+
+    # Require a few clean runs before declaring recovery, so a flapping fault
+    # cannot re-arm the traceback on every other tick.
+    successes = _watchdog_successes.get(name, 0) + 1
+    if successes < SUCCESSES_TO_CLEAR_FAILURES:
+        _watchdog_successes[name] = successes
+        return
+
+    _watchdog_successes.pop(name, None)
+    failures = _watchdog_failures.pop(name, 0)
+    if failures:
+        # Phrased as a recovery, not by reusing the failure message: reporting
+        # "El chequeo ... falló: resuelto." read as a contradiction and made a
+        # grep for the failure text hit the success line too.
+        logger.info(
+            "Resuelto (tras %d fallo%s): %s",
+            failures,
+            "" if failures == 1 else "s",
+            message,
+        )
 
 
 def _stale_watchdog() -> None:
