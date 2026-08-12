@@ -72,6 +72,9 @@ class BrokerConnection:
         # Guards connect/disconnect/retry transitions, separate from the topic
         # cache lock so a message burst never blocks a reconnect.
         self._state_lock = threading.RLock()
+        # Held only around the status read-compare-write, never across the
+        # callback, so a slow listener can't block connection transitions.
+        self._status_lock = threading.Lock()
         self._status = "disconnected"
         self._last_error: str | None = None
         self._on_message_cb = on_message
@@ -83,19 +86,31 @@ class BrokerConnection:
     def status(self) -> str:
         return self._status
 
-    def _set_status(self, status: str) -> None:
+    def _set_status(self, status: str, *, only_if: tuple[str, ...] | None = None) -> bool:
         """Single place where status changes, so listeners can react.
 
-        Consumers use this to mark entities unknown when a broker drops.
+        The read-compare-write is done under a lock, and the callback is invoked
+        outside it: consumers do network I/O there, and holding a connection lock
+        across that stalled the paho network thread.
+
+        only_if restricts the change to those current statuses, which is how a
+        retry avoids overwriting a "connected" that landed concurrently.
+        Returns whether the status changed.
         """
-        previous = self._status
-        self._status = status
-        if previous == status or self._on_status_change_cb is None:
-            return
-        try:
-            self._on_status_change_cb(self.id, status)
-        except Exception:
-            logger.exception("on_status_change falló para %s", self.config.label())
+        with self._status_lock:
+            previous = self._status
+            if only_if is not None and previous not in only_if:
+                return False
+            if previous == status:
+                return False
+            self._status = status
+
+        if self._on_status_change_cb is not None:
+            try:
+                self._on_status_change_cb(self.id, status)
+            except Exception:
+                logger.exception("on_status_change falló para %s", self.config.label())
+        return True
 
     @property
     def last_error(self) -> str | None:
@@ -248,13 +263,16 @@ class BrokerConnection:
                     if self._stop or self._status == "connected":
                         return
                     time.sleep(0.2)
-                # Report the failure rather than leaving the UI on "conectando"
-                # forever; the next iteration flips it back to connecting.
-                self._set_status("error")
+                # The CONNACK can land between the loop check above and here, so
+                # only fail the attempt if we are still waiting. Otherwise a
+                # healthy, subscribed connection would be flagged as failed and
+                # torn down on the next iteration.
                 self._last_error = (
                     f"sin respuesta de {self.config.label()} "
                     f"(intento {attempt}, reintentando)"
                 )
+                if not self._set_status("error", only_if=("connecting",)):
+                    return
             except Exception as exc:
                 self._set_status("error")
                 self._last_error = f"{exc} (intento {attempt})"

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.11
+
+Correcciones a problemas introducidos por las versiones 1.07 y 1.08:
+
+- **Corregido (importante)**: si la respuesta del broker llegaba justo cuando expiraba el tiempo de espera de un reintento, el broker quedaba marcado como "error" aunque estuviera conectado y recibiendo datos. Eso hacía que sus entidades pasaran a `unknown` con datos llegando, y que el siguiente reintento cortara una conexión que funcionaba bien.
+- **Corregido**: al perder la conexión, las actualizaciones a Home Assistant se hacían dentro del hilo de red de MQTT y bloqueando la gestión de conexiones. Con muchas entidades y Home Assistant lento, esto podía frenar la reconexión durante minutos. Ahora ese trabajo se hace en un proceso aparte y el hilo de red responde de inmediato.
+- **Corregido**: si Home Assistant no respondía al marcar una entidad como desconocida, el intento se repetía en cada cambio de estado del broker, indefinidamente. Ahora se intenta una vez y se reintenta recién cuando llegan datos nuevos.
+
 ## 1.10
 
 - **Topics `$SYS` del broker**: el comodín `#` no incluye los topics que empiezan con `$` (así lo define el estándar MQTT), por lo que las estadísticas internas del broker no se veían. Ahora hay una casilla **Suscribir a `$SYS`** en el formulario de cada broker, desactivada por defecto para no llenar el árbol con topics de diagnóstico. Los brokers que la tengan activa se marcan con `+$SYS` en la planilla.

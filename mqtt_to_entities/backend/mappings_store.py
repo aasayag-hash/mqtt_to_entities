@@ -214,7 +214,13 @@ def set_last_value(mapping_id: str, value: Any) -> None:
     # staleness watchdog compares against.
     _touch_runtime_state(
         mapping_id,
-        {"last_value": value, "last_error": None, "last_update_at": time.time()},
+        {
+            "last_value": value,
+            "last_error": None,
+            "last_update_at": time.time(),
+            # Fresh data means a future outage should blank it again.
+            "unknown_pushed": False,
+        },
     )
 
 
@@ -224,7 +230,15 @@ def set_last_error(mapping_id: str, error: str | None) -> None:
 
 def set_unknown(mapping_id: str, unknown_state: str) -> None:
     """Blank a mapping's value without restarting its staleness clock."""
-    _touch_runtime_state(mapping_id, {"last_value": unknown_state, "last_error": None})
+    _touch_runtime_state(
+        mapping_id,
+        {"last_value": unknown_state, "last_error": None, "unknown_pushed": True},
+    )
+
+
+def mark_unknown_attempted(mapping_id: str, error: str | None) -> None:
+    """Record a failed blanking attempt so it isn't retried on every transition."""
+    _touch_runtime_state(mapping_id, {"unknown_pushed": True, "last_error": error})
 
 
 def set_last_update_at(mapping_id: str, when: float) -> None:

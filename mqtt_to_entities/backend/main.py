@@ -41,6 +41,12 @@ STALE_CHECK_INTERVAL_SECONDS = 30.0
 
 _shutdown = threading.Event()
 
+# Brokers whose entities still need to be blanked. Filled from paho's network
+# threads, drained by _status_worker so the HTTP calls never run there.
+_pending_unknown: set[str] = set()
+_pending_lock = threading.Lock()
+_status_work = threading.Event()
+
 
 def _on_mqtt_message(broker_id: str, topic: str, state: TopicState) -> None:
     for mapping in mappings_store.mappings_for_topic(topic, broker_id):
@@ -99,16 +105,23 @@ def _apply_mapping(mapping: dict[str, Any], state: TopicState) -> None:
 
 
 def _mark_unknown(mapping: dict[str, Any], reason: str) -> None:
-    """Push Home Assistant's "unknown" state for one mapping."""
-    if mapping.get("last_value") == HA_UNKNOWN_STATE:
-        return  # already blanked; don't spam the API
+    """Push Home Assistant's "unknown" state for one mapping, at most once.
+
+    The attempt is recorded whether or not the push succeeded. Keying only on
+    success meant that with Home Assistant unreachable, every status transition
+    retried every entity -- 2xN blocking HTTP calls per retry cycle, forever.
+    A later successful message clears the flag, so it recovers on its own.
+    """
+    if mapping.get("last_value") == HA_UNKNOWN_STATE or mapping.get("unknown_pushed"):
+        return  # already blanked (or already attempted); don't spam the API
 
     ok, error = ha_api.set_state(mapping["entity_id"], HA_UNKNOWN_STATE)
     if ok:
         logger.info("%s -> unknown (%s)", mapping["entity_id"], reason)
         mappings_store.set_unknown(mapping["id"], HA_UNKNOWN_STATE)
     else:
-        mappings_store.set_last_error(mapping["id"], error)
+        logger.warning("No se pudo marcar %s como unknown: %s", mapping["entity_id"], error)
+        mappings_store.mark_unknown_attempted(mapping["id"], error)
 
 
 def _stale_timeout(mapping: dict[str, Any]) -> float | None:
@@ -158,25 +171,56 @@ def _stale_watchdog() -> None:
 
 
 def _on_broker_status_change(broker_id: str, status: str) -> None:
-    """Mark a broker's entities unknown while it is not connected.
+    """Queue a broker's entities to be blanked; never do I/O on this thread.
 
-    Without this the entities keep showing the last value they ever got, which
-    looks like live data long after the broker went away. Home Assistant renders
-    the literal state "unknown" as unavailable/desconocido.
+    This runs on paho's network thread (and inside the retry loop), so it only
+    enqueues. Pushing to Home Assistant here meant a 5s-timeout HTTP call per
+    entity was stalling connection handling and the retry backoff.
     """
     if status == "connected":
+        # Coming back up cancels a pending blanking that never got processed.
+        with _pending_lock:
+            _pending_unknown.discard(broker_id)
         return
     # The very first "connecting" happens while restoring saved values; blanking
     # them there would defeat the restore.
     if not _startup_done:
         return
 
+    with _pending_lock:
+        _pending_unknown.add(broker_id)
+    _status_work.set()
+
+
+def _blank_broker_entities(broker_id: str) -> None:
+    """Push "unknown" for a broker's entities, unless it reconnected meanwhile."""
+    connection = mqtt_pool.get(broker_id)
+    if connection is not None and connection.status == "connected":
+        return
+
+    label = connection.config.label() if connection is not None else broker_id
     for mapping in mappings_store.list_mappings():
         # Legacy mappings without broker_id are fed by any broker, so another
         # one may still be publishing; leave those alone.
         if mapping.get("broker_id") != broker_id:
             continue
-        _mark_unknown(mapping, f"broker {status}")
+        _mark_unknown(mapping, f"broker {label} sin conexión")
+
+
+def _status_worker() -> None:
+    """Serializes the slow HTTP work triggered by broker status changes."""
+    while not _shutdown.is_set():
+        _status_work.wait(timeout=1.0)
+        _status_work.clear()
+        while not _shutdown.is_set():
+            with _pending_lock:
+                if not _pending_unknown:
+                    break
+                broker_id = _pending_unknown.pop()
+            try:
+                _blank_broker_entities(broker_id)
+            except Exception:
+                logger.exception("Fallo al marcar entidades de %s", broker_id)
 
 
 mqtt_pool = MqttPool(
@@ -226,6 +270,7 @@ def _restore_brokers() -> None:
     _startup_done = True
 
     threading.Thread(target=_stale_watchdog, daemon=True, name="stale-watchdog").start()
+    threading.Thread(target=_status_worker, daemon=True, name="status-worker").start()
 
 
 @app.on_event("shutdown")
