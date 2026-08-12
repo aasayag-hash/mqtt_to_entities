@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.15
+
+- **Nuevo: buscador de brokers en la red**. En la solapa **Conexión** hay un buscador que recorre el rango de red indicado probando los puertos 1883 y 8883, y muestra cuáles responden realmente como broker MQTT. A cada resultado se le envía un saludo MQTT de verdad, así que distingue un broker auténtico de cualquier otro servicio que esté escuchando en ese puerto, e indica además si pide usuario y contraseña. Al hacer clic en un resultado se completa solo el formulario de conexión.
+  - Una red doméstica típica (254 direcciones) se revisa en menos de un segundo.
+  - El rango se puede elegir de una lista con las redes domésticas más habituales, o escribirse a mano. El add-on no puede ver por sí mismo la red de tu casa (Home Assistant lo aísla en una red interna), por eso ofrece sugerencias en lugar de adivinar.
+  - Se admiten rangos de hasta 1022 direcciones (una /22). No usa Nmap: va con la propia librería de Python, así que no agrega peso a la instalación ni pide permisos de red adicionales.
+
 ## 1.14
 
 Correcciones encontradas en una revisión del código, incluidas dos que introdujo la versión 1.12:

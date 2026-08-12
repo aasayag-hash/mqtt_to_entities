@@ -82,6 +82,23 @@
             </div>
           </form>
           <p id="conn-error" class="error"></p>
+
+          <div id="scan-panel">
+            <h3>Buscar brokers en la red</h3>
+            <p class="field-hint">
+              Prueba los puertos 1883 y 8883 en el rango indicado y confirma cu&aacute;les
+              responden como broker MQTT. Al hacer clic en un resultado se completa el formulario.
+            </p>
+            <div class="scan-controls">
+              <label>Rango
+                <input type="text" id="scan-range" list="scan-range-options" placeholder="192.168.1.0/24" />
+                <datalist id="scan-range-options"></datalist>
+              </label>
+              <button type="button" id="btn-scan">Buscar</button>
+            </div>
+            <p id="scan-status" class="field-hint"></p>
+            <ul id="scan-results"></ul>
+          </div>
         </div>
 
         <div class="broker-list-panel">

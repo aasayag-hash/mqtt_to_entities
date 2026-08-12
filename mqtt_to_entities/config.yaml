@@ -1,5 +1,5 @@
 name: "MQTT to Entities"
-version: "1.14"
+version: "1.15"
 slug: "mqtt_to_entities"
 description: "Discover MQTT topics and map JSON fields to Home Assistant entities, no YAML required"
 url: "https://github.com/aasayag-hash/mqtt_to_entities"

@@ -987,6 +987,132 @@ async function submitConnection(event) {
   pollBrokersBriefly();
 }
 
+// Prefill the scan range and offer alternatives. The add-on usually only sees
+// Home Assistant's internal Docker network, in which case the backend returns a
+// null range and we just offer the ranges home routers typically use.
+async function loadDefaultScanRange() {
+  try {
+    const res = await fetch(`${API_BASE}api/scan/default-range`);
+    if (!res.ok) return;
+    const data = await res.json();
+
+    const datalist = $("#scan-range-options");
+    if (datalist && Array.isArray(data.suggestions)) {
+      datalist.innerHTML = data.suggestions
+        .map((r) => `<option value="${escapeHtml(r)}"></option>`)
+        .join("");
+    }
+
+    if (!$("#scan-range").value) {
+      // Only autofill a genuinely detected LAN range; otherwise leave the field
+      // empty so the placeholder and the dropdown invite a deliberate choice.
+      if (data.range) {
+        $("#scan-range").value = data.range;
+      } else {
+        $("#scan-status").textContent =
+          "Elegí el rango de tu red (el add-on no puede detectarlo por sí mismo).";
+      }
+    }
+  } catch (err) {
+    /* offline or endpoint unavailable; the field is editable anyway */
+  }
+}
+
+let scanning = false;
+
+async function runScan() {
+  if (scanning) return; // a second click would double the connection load
+  scanning = true;
+
+  const button = $("#btn-scan");
+  const status = $("#scan-status");
+  const list = $("#scan-results");
+  button.disabled = true;
+  button.textContent = "Buscando…";
+  status.textContent = "Escaneando la red…";
+  status.classList.remove("error");
+  list.innerHTML = "";
+
+  try {
+    const res = await fetch(`${API_BASE}api/scan`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ range: $("#scan-range").value.trim() || null }),
+    });
+
+    if (!res.ok) {
+      let detail = `Error HTTP ${res.status}`;
+      try {
+        detail = (await res.json()).detail || detail;
+      } catch (err) {
+        /* keep the HTTP status */
+      }
+      status.textContent = detail;
+      status.classList.add("error");
+      return;
+    }
+
+    const data = await res.json();
+    renderScanResults(data);
+  } catch (err) {
+    status.textContent = `No se pudo escanear: ${err}`;
+    status.classList.add("error");
+  } finally {
+    scanning = false;
+    button.disabled = false;
+    button.textContent = "Buscar";
+  }
+}
+
+function renderScanResults(data) {
+  const status = $("#scan-status");
+  const list = $("#scan-results");
+
+  const confirmed = data.results.filter((r) => r.confirmed_mqtt);
+  status.textContent =
+    `${data.hosts_scanned} direcciones revisadas en ${data.range}: ` +
+    `${confirmed.length} broker(s) MQTT` +
+    (data.results.length > confirmed.length
+      ? `, ${data.results.length - confirmed.length} puerto(s) abierto(s) sin confirmar`
+      : "");
+
+  if (data.results.length === 0) {
+    list.innerHTML =
+      '<li class="scan-empty">No se encontró ningún broker en ese rango.</li>';
+    return;
+  }
+
+  list.innerHTML = data.results
+    .map((r) => {
+      const badge = r.confirmed_mqtt
+        ? '<span class="scan-badge ok">MQTT</span>'
+        : '<span class="scan-badge unknown">?</span>';
+      const auth = r.requires_auth
+        ? '<span class="scan-badge auth">requiere login</span>'
+        : "";
+      return `
+        <li class="scan-result" data-host="${escapeHtml(r.host)}" data-port="${r.port}">
+          <button type="button" class="scan-pick">
+            ${badge}
+            <span class="scan-endpoint">${escapeHtml(r.host)}:${r.port}</span>
+            ${auth}
+            <span class="scan-detail">${escapeHtml(r.detail)}</span>
+          </button>
+        </li>`;
+    })
+    .join("");
+
+  list.querySelectorAll(".scan-result").forEach((item) => {
+    item.querySelector(".scan-pick").addEventListener("click", () => {
+      $("#conn-host").value = item.dataset.host;
+      $("#conn-port").value = item.dataset.port;
+      $("#conn-host").focus();
+      status.textContent = `Formulario completado con ${item.dataset.host}:${item.dataset.port}.`;
+      status.classList.remove("error");
+    });
+  });
+}
+
 // connect_async returns before the handshake finishes, so poll briefly instead
 // of waiting for the regular refresh to show the green state.
 function pollBrokersBriefly(attempts = 6) {
@@ -1041,6 +1167,16 @@ async function init() {
 
   $("#connection-form").addEventListener("submit", submitConnection);
   $("#btn-cancel-edit").addEventListener("click", cancelEditBroker);
+
+  $("#btn-scan").addEventListener("click", runScan);
+  $("#scan-range").addEventListener("keydown", (event) => {
+    // Enter inside the range field would otherwise submit the broker form.
+    if (event.key === "Enter") {
+      event.preventDefault();
+      runScan();
+    }
+  });
+  loadDefaultScanRange();
 
   $("#tree-broker").addEventListener("change", (event) => {
     selectedBrokerId = event.target.value || null;

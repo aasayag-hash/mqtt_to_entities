@@ -618,3 +618,98 @@ form label.hidden {
   border-bottom: 1px solid #e0e0e0;
   white-space: normal;
 }
+
+/* Network scan for MQTT brokers, in the connection tab. */
+#scan-panel {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #e0e0e0;
+}
+
+#scan-panel h3 {
+  margin: 0 0 4px 0;
+  font-size: 0.95rem;
+}
+
+.scan-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.scan-controls label {
+  flex: 1;
+  margin: 0;
+}
+
+#scan-results {
+  list-style: none;
+  margin: 10px 0 0 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.scan-result {
+  margin-bottom: 4px;
+}
+
+.scan-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.scan-pick:hover {
+  border-color: #03a9f4;
+  background: #f5fbff;
+}
+
+.scan-endpoint {
+  font-family: monospace;
+  font-weight: 600;
+}
+
+.scan-detail {
+  margin-left: auto;
+  color: #777;
+  font-size: 0.75rem;
+}
+
+.scan-badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.scan-badge.ok {
+  background: #e6f4ea;
+  color: #1b7f3a;
+}
+
+.scan-badge.unknown {
+  background: #eceff1;
+  color: #546e7a;
+}
+
+.scan-badge.auth {
+  background: #fff4e5;
+  color: #8a5a00;
+}
+
+.scan-empty {
+  color: #777;
+  font-size: 0.8rem;
+  padding: 6px 0;
+}

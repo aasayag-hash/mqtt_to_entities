@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from backend import brokers_store, domain_transform, ha_api, mappings_store
+from backend import brokers_store, domain_transform, ha_api, mappings_store, network_scan
 from backend.json_paths import flatten_paths, resolve_path
 from backend.mqtt_client import BrokerConfig, DuplicateBrokerError, MqttPool, TopicState
 
@@ -298,6 +298,11 @@ class BrokerConfigIn(BaseModel):
     subscribe_sys: bool = False
 
 
+class ScanRequest(BaseModel):
+    # Empty means "autodetect the add-on's own /24".
+    range: str | None = None
+
+
 class MappingIn(BaseModel):
     topic: str
     field_path: str
@@ -417,6 +422,35 @@ def disconnect_broker(broker_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Broker no encontrado")
     connection.disconnect()
     return connection.to_dict()
+
+
+@app.get("/api/scan/default-range")
+def scan_default_range() -> dict[str, Any]:
+    """Range suggestions for the UI.
+
+    "range" is the detected LAN /24, or null when the add-on can only see Home
+    Assistant's internal Docker network; "suggestions" always has usable options.
+    """
+    return {
+        "range": network_scan.local_cidr(),
+        "suggestions": network_scan.suggested_ranges(),
+    }
+
+
+@app.post("/api/scan")
+async def scan_network(request: ScanRequest) -> dict[str, Any]:
+    """Sweep a local range for MQTT brokers so the user needn't know the IP."""
+    cidr = (request.range or network_scan.local_cidr() or "").strip()
+    if not cidr:
+        raise HTTPException(
+            status_code=400,
+            detail="No se pudo detectar la red local; indicá un rango, por ejemplo 192.168.1.0/24",
+        )
+
+    try:
+        return await network_scan.scan(cidr)
+    except network_scan.ScanError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.get("/api/tree")
