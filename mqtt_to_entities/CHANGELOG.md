@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.20
+
+Se cierran los tres puntos menores que quedaban pendientes de la revisión anterior:
+
+- **Corregido (importante)**: si un broker guardado daba un error inesperado al arrancar, el add-on quedaba **a medio arrancar**: los demás brokers no se conectaban y los procesos de fondo (el que marca entidades sin datos y el que actualiza estados) nunca se iniciaban, mientras la página web seguía respondiendo como si todo estuviera bien. Ahora un broker con problemas se informa en el log y el arranque continúa con el resto.
+- **Corregido**: por el mismo motivo, si al arrancar no se podía restaurar el último valor de una entidad, **ningún** broker llegaba a conectarse. Ahora se informa y se sigue. Además, un valor que no se pueda enviar a Home Assistant ya no interrumpe el proceso.
+- **Corregido**: si se edita o borra un broker y falla el guardado, el broker queda registrado y visible en estado de error en lugar de desaparecer de la lista.
+- **Mejorado**: los avisos de esos casos eran incompletos. Decían que el cambio se perdería "al reiniciar", cuando en realidad cualquier operación posterior que sí se guarde bien lo vuelve permanente. Ahora lo explican correctamente.
+
 ## 1.19
 
 Correcciones de una revisión del código, una de ellas importante:

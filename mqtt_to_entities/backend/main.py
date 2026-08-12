@@ -316,9 +316,19 @@ def _restore_last_values() -> None:
         last_value = mapping.get("last_value")
         if last_value is None:
             continue
-        ok, error = ha_api.set_state(mapping["entity_id"], last_value)
-        if not ok:
-            mappings_store.set_last_error(mapping["id"], error)
+        try:
+            ok, error = ha_api.set_state(mapping["entity_id"], last_value)
+            if not ok:
+                mappings_store.set_last_error(mapping["id"], error)
+        except Exception:
+            # Restoring a value is a nicety, not a prerequisite. This handler is
+            # registered before _restore_brokers, so letting an exception escape
+            # meant no broker ever connected -- the whole add-on came up dead
+            # because one stored value could not be pushed.
+            logger.exception(
+                "No se pudo restaurar el valor de %s; se continúa",
+                mapping.get("entity_id"),
+            )
 
 
 @app.on_event("startup")
@@ -350,8 +360,18 @@ def _restore_brokers() -> None:
                 config.label(),
                 exc.existing.id,
             )
+        except Exception:
+            # One bad entry must not abort startup: doing so skipped every
+            # remaining broker AND left _startup_done False with neither
+            # background thread running, while uvicorn kept serving the UI as
+            # if nothing were wrong.
+            logger.exception(
+                "No se pudo restaurar el broker %s; se continúa con los demás",
+                config.label(),
+            )
 
-    # From here on, losing a broker should blank its entities.
+    # From here on, losing a broker should blank its entities. Set even if every
+    # broker failed, so a later manual add behaves normally.
     _startup_done = True
 
     threading.Thread(target=_stale_watchdog, daemon=True, name="stale-watchdog").start()
@@ -495,7 +515,8 @@ def update_broker(broker_id: str, config: BrokerConfigIn) -> dict[str, Any]:
             status_code=500,
             detail=(
                 f"El broker se actualizó pero no se pudo guardar en disco ({exc}). "
-                "Los cambios se perderán al reiniciar el add-on."
+                "Funciona ahora, pero se volverá a la configuración anterior si el "
+                "add-on se reinicia antes de que otro cambio se guarde bien."
             ),
         )
     return connection.to_dict()
@@ -516,7 +537,8 @@ def delete_broker(broker_id: str) -> dict[str, Any]:
             status_code=500,
             detail=(
                 f"El broker se eliminó pero no se pudo guardar en disco ({exc}). "
-                "Volverá a aparecer al reiniciar el add-on."
+                "Ya está desconectado, pero volverá a aparecer si el add-on se "
+                "reinicia antes de que otro cambio se guarde bien."
             ),
         )
     return {"deleted": True}

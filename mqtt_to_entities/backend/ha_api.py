@@ -70,3 +70,10 @@ def set_state(entity_id: str, state: Any, attributes: dict[str, Any] | None = No
     except httpx.HTTPError as exc:
         logger.warning("Failed to update %s: %s", entity_id, exc)
         return False, f"No se pudo contactar a Home Assistant: {exc}"
+    except (TypeError, ValueError) as exc:
+        # httpx serializes the body itself, so a value it cannot encode raises
+        # here rather than returning an error. This must not propagate: a stored
+        # last_value that is not JSON-serializable would abort startup on every
+        # boot, before any broker gets a chance to connect.
+        logger.warning("Valor no serializable para %s: %s", entity_id, exc)
+        return False, f"El valor no se puede enviar a Home Assistant: {exc}"

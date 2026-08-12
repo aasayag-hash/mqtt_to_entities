@@ -473,13 +473,15 @@ class MqttPool:
         old.disconnect()
         try:
             replacement.connect()
-        except BaseException:
-            # Same guard as add(): unreachable while _start_client swallows
-            # everything, but a raise here would leave the broker registered
-            # with a connection that was never started.
-            with self._lock:
-                if self._connections.get(broker_id) is replacement:
-                    del self._connections[broker_id]
+        except BaseException as exc:
+            # Unlike add(), dropping the entry here would LOSE a broker that
+            # already existed: the caller has not persisted yet, so disk still
+            # lists it and it would silently return on restart. Keep it
+            # registered in an error state instead -- the same shape
+            # _start_client produces for an unreachable broker -- so the UI shows
+            # it as failed and the user can fix or delete it.
+            replacement._last_error = f"no se pudo iniciar la conexión: {exc}"
+            replacement._set_status("error")
             raise
         return replacement
 
