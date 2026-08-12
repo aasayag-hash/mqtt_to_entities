@@ -80,22 +80,89 @@ main {
   max-height: 60vh;
 }
 
-.tree-node {
-  margin-left: 14px;
+.tree-toolbar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
 }
 
-.tree-label {
-  cursor: pointer;
+.tree-toolbar input[type="search"] {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+#tree-collapse-all {
+  background: white;
+  color: #1c1e21;
+  padding: 6px 10px;
+  line-height: 1;
+}
+
+.tree-empty {
+  color: #777;
+  font-size: 0.9rem;
+  padding: 8px 4px;
+}
+
+.tree-children {
+  margin-left: 16px;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 2px 4px;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
 }
 
-.tree-label:hover {
+.tree-row:hover {
   background: #e8f4fb;
 }
 
-.tree-label.leaf {
-  font-weight: 600;
+.tree-row.selected {
+  background: #d4ecf9;
+}
+
+.tree-chevron {
+  display: inline-block;
+  width: 12px;
+  flex: none;
+  color: #888;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.tree-chevron.clickable:hover {
   color: #03a9f4;
+}
+
+.tree-name {
+  font-weight: 600;
+}
+
+.tree-name.leaf {
+  color: #03a9f4;
+}
+
+.tree-badge {
+  font-size: 0.75rem;
+  color: #666;
+  flex: none;
+}
+
+.tree-preview {
+  font-family: Consolas, Menlo, monospace;
+  font-size: 0.75rem;
+  color: #2e7d32;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 table {
@@ -138,9 +205,43 @@ button {
   color: white;
 }
 
-button#btn-reconnect, button#mapping-cancel {
+button#btn-disconnect, button#mapping-cancel {
   background: white;
   color: #1c1e21;
+}
+
+button#btn-connect.connected {
+  background: #2e7d32;
+  border-color: #2e7d32;
+  color: white;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.status-pill {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.status-pill.connected {
+  background: #e6f4ea;
+  color: #1b5e20;
+}
+
+.status-pill.disconnected {
+  background: #eceff1;
+  color: #546e7a;
+}
+
+.status-pill.error {
+  background: #fdecea;
+  color: #c62828;
 }
 
 .field-value {

@@ -12,6 +12,7 @@ import paho.mqtt.client as mqtt
 logger = logging.getLogger("mqtt_to_entities.mqtt_client")
 
 MAX_BACKOFF_SECONDS = 30
+PREVIEW_MAX_CHARS = 80
 
 
 @dataclass
@@ -27,6 +28,7 @@ class TopicState:
     payload: Any
     raw: str
     received_at: float = field(default_factory=time.time)
+    message_count: int = 1
 
 
 class MqttManager:
@@ -136,8 +138,13 @@ class MqttManager:
         except (json.JSONDecodeError, ValueError):
             payload = raw
 
-        state = TopicState(payload=payload, raw=raw)
         with self._lock:
+            previous = self._topics.get(msg.topic)
+            state = TopicState(
+                payload=payload,
+                raw=raw,
+                message_count=(previous.message_count + 1) if previous else 1,
+            )
             self._topics[msg.topic] = state
 
         if self._on_message_cb is not None:
@@ -157,11 +164,45 @@ class MqttManager:
     def build_tree(self) -> dict[str, Any]:
         tree: dict[str, Any] = {}
         with self._lock:
-            topics = list(self._topics.keys())
-        for topic in topics:
+            snapshot = dict(self._topics)
+
+        for topic, state in snapshot.items():
             segments = topic.split("/")
             node = tree
             for segment in segments:
                 node = node.setdefault("children", {}).setdefault(segment, {})
             node["__topic__"] = topic
+            node["__message_count__"] = state.message_count
+            node["__preview__"] = _preview(state.raw)
+
+        _annotate_totals(tree)
         return tree
+
+
+def _preview(raw: str) -> str:
+    collapsed = " ".join(raw.split())
+    if len(collapsed) <= PREVIEW_MAX_CHARS:
+        return collapsed
+    return collapsed[:PREVIEW_MAX_CHARS] + "…"
+
+
+def _annotate_totals(node: dict[str, Any]) -> tuple[int, int]:
+    """Attach descendant-topic and total-message counts to every node.
+
+    Returns the (topic_count, message_count) subtree totals so parents can
+    accumulate their children's numbers, mirroring MQTT Explorer's display.
+    """
+    topics = 1 if "__topic__" in node else 0
+    messages = node.get("__message_count__", 0)
+
+    children = node.get("children")
+    if children:
+        for child in children.values():
+            child_topics, child_messages = _annotate_totals(child)
+            topics += child_topics
+            messages += child_messages
+        node["__child_count__"] = len(children)
+
+    node["__topic_total__"] = topics
+    node["__message_total__"] = messages
+    return topics, messages

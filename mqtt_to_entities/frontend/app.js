@@ -3,6 +3,12 @@ const API_BASE = new URL(".", window.location.href).pathname;
 let currentTopic = null;
 let currentPayload = null;
 
+// Expansion is tracked out here, keyed by the node's full path, so the 5s tree
+// refresh re-renders without collapsing whatever the user opened. Everything
+// starts collapsed because nothing is in the set.
+const expandedPaths = new Set();
+let treeFilter = "";
+
 function $(selector) {
   return document.querySelector(selector);
 }
@@ -23,35 +29,145 @@ function initTabs() {
 async function loadTree() {
   const res = await fetch(`${API_BASE}api/tree`);
   const tree = await res.json();
-  const container = $("#topic-tree");
-  container.innerHTML = "";
-  container.appendChild(renderTreeNode(tree, ""));
+  renderTree(tree);
 }
 
-function renderTreeNode(node, label) {
+let lastTree = null;
+
+function renderTree(tree) {
+  lastTree = tree;
+  const container = $("#topic-tree");
+  container.innerHTML = "";
+
+  const children = tree.children || {};
+  const keys = Object.keys(children).sort();
+  const rendered = keys
+    .map((key) => renderTreeNode(children[key], key, key))
+    .filter(Boolean);
+
+  if (rendered.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "tree-empty";
+    empty.textContent = treeFilter
+      ? "Sin coincidencias"
+      : "Sin topics todavía. Conectate al broker.";
+    container.appendChild(empty);
+    return;
+  }
+
+  rendered.forEach((el) => container.appendChild(el));
+}
+
+// Returns null when the node and none of its descendants match the active
+// filter, which is what prunes non-matching branches out of the render.
+function renderTreeNode(node, label, path) {
+  if (!matchesFilter(node, label, path)) return null;
+
   const wrapper = document.createElement("div");
   wrapper.className = "tree-node";
 
-  if (label) {
-    const el = document.createElement("div");
-    const isLeaf = node.__topic__ && !node.children;
-    el.className = "tree-label" + (isLeaf ? " leaf" : "");
-    el.textContent = label;
-    if (node.__topic__) {
-      el.addEventListener("click", () => selectTopic(node.__topic__));
-    }
-    wrapper.appendChild(el);
+  const hasChildren = Boolean(node.children && Object.keys(node.children).length);
+  // While filtering, auto-open so matches deep in the tree are visible without
+  // the user having to expand every ancestor by hand.
+  const isExpanded = treeFilter ? true : expandedPaths.has(path);
+
+  const row = document.createElement("div");
+  row.className = "tree-row";
+  if (node.__topic__) row.classList.add("has-topic");
+
+  const chevron = document.createElement("span");
+  chevron.className = "tree-chevron";
+  if (hasChildren) {
+    chevron.textContent = isExpanded ? "⌄" : "›";
+    chevron.classList.add("clickable");
+    chevron.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleExpanded(path);
+    });
+  }
+  row.appendChild(chevron);
+
+  const name = document.createElement("span");
+  name.className = "tree-name";
+  if (node.__topic__) name.classList.add("leaf");
+  name.textContent = label;
+  row.appendChild(name);
+
+  if (hasChildren) {
+    const childBadge = document.createElement("span");
+    childBadge.className = "tree-badge children";
+    childBadge.textContent = `↳${node.__child_count__ || 0}`;
+    row.appendChild(childBadge);
   }
 
-  if (node.children) {
+  if (node.__message_total__) {
+    const msgBadge = document.createElement("span");
+    msgBadge.className = "tree-badge messages";
+    msgBadge.textContent = `✉${node.__message_total__}`;
+    row.appendChild(msgBadge);
+  }
+
+  if (node.__topic__ && node.__preview__) {
+    const preview = document.createElement("span");
+    preview.className = "tree-preview";
+    preview.textContent = node.__preview__;
+    row.appendChild(preview);
+  }
+
+  // Clicking the row opens the payload for real topics; for pure branch nodes
+  // it just expands, which is the least surprising behavior.
+  row.addEventListener("click", () => {
+    if (node.__topic__) {
+      selectTopic(node.__topic__);
+      highlightRow(row);
+    } else if (hasChildren) {
+      toggleExpanded(path);
+    }
+  });
+
+  wrapper.appendChild(row);
+
+  if (hasChildren && isExpanded) {
+    const childContainer = document.createElement("div");
+    childContainer.className = "tree-children";
     Object.keys(node.children)
       .sort()
       .forEach((key) => {
-        wrapper.appendChild(renderTreeNode(node.children[key], key));
+        const child = renderTreeNode(node.children[key], key, `${path}/${key}`);
+        if (child) childContainer.appendChild(child);
       });
+    wrapper.appendChild(childContainer);
   }
 
   return wrapper;
+}
+
+function matchesFilter(node, label, path) {
+  if (!treeFilter) return true;
+  const needle = treeFilter.toLowerCase();
+  if (label.toLowerCase().includes(needle)) return true;
+  if (path.toLowerCase().includes(needle)) return true;
+  if (node.__preview__ && node.__preview__.toLowerCase().includes(needle)) return true;
+  if (node.children) {
+    return Object.keys(node.children).some((key) =>
+      matchesFilter(node.children[key], key, `${path}/${key}`)
+    );
+  }
+  return false;
+}
+
+function toggleExpanded(path) {
+  if (expandedPaths.has(path)) {
+    expandedPaths.delete(path);
+  } else {
+    expandedPaths.add(path);
+  }
+  if (lastTree) renderTree(lastTree);
+}
+
+function highlightRow(row) {
+  document.querySelectorAll(".tree-row.selected").forEach((el) => el.classList.remove("selected"));
+  row.classList.add("selected");
 }
 
 async function selectTopic(topic) {
@@ -245,11 +361,32 @@ function escapeHtml(value) {
   return div.innerHTML;
 }
 
+const STATUS_LABELS = {
+  connected: "conectado",
+  disconnected: "desconectado",
+  error: "error",
+};
+
 async function loadStatus() {
   const res = await fetch(`${API_BASE}api/status`);
   const data = await res.json();
-  $("#conn-status").textContent = data.status;
-  $("#conn-error").textContent = data.last_error || "";
+  applyStatus(data.status, data.last_error);
+}
+
+function applyStatus(status, lastError) {
+  const pill = $("#conn-status");
+  pill.textContent = STATUS_LABELS[status] || status;
+  pill.classList.remove("connected", "disconnected", "error");
+  pill.classList.add(status === "connected" ? "connected" : status === "error" ? "error" : "disconnected");
+
+  const connected = status === "connected";
+  const connectBtn = $("#btn-connect");
+  connectBtn.textContent = connected ? "Conectado" : "Conectar";
+  connectBtn.classList.toggle("connected", connected);
+  connectBtn.disabled = connected;
+  $("#btn-disconnect").disabled = !connected;
+
+  $("#conn-error").textContent = lastError || "";
 }
 
 async function submitConnection(event) {
@@ -260,12 +397,32 @@ async function submitConnection(event) {
     username: $("#conn-username").value.trim() || null,
     password: $("#conn-password").value || null,
   };
-  await fetch(`${API_BASE}api/connect`, {
+  const res = await fetch(`${API_BASE}api/connect`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  loadStatus();
+
+  if (!res.ok) {
+    applyStatus("error", `HTTP ${res.status} al conectar`);
+    return;
+  }
+
+  // connect_async returns before the broker handshake finishes, so poll a few
+  // times to pick up the transition to "connected" without waiting for the
+  // regular 5s refresh.
+  await loadStatus();
+  pollStatusBriefly();
+}
+
+function pollStatusBriefly(attempts = 6) {
+  if (attempts <= 0) return;
+  setTimeout(async () => {
+    await loadStatus();
+    if ($("#conn-status").textContent !== STATUS_LABELS.connected) {
+      pollStatusBriefly(attempts - 1);
+    }
+  }, 500);
 }
 
 function init() {
@@ -276,9 +433,19 @@ function init() {
   setInterval(loadStatus, 5000);
 
   $("#connection-form").addEventListener("submit", submitConnection);
-  $("#btn-reconnect").addEventListener("click", async () => {
-    await fetch(`${API_BASE}api/reconnect`, { method: "POST" });
+  $("#btn-disconnect").addEventListener("click", async () => {
+    await fetch(`${API_BASE}api/disconnect`, { method: "POST" });
     loadStatus();
+  });
+
+  $("#tree-search").addEventListener("input", (event) => {
+    treeFilter = event.target.value.trim();
+    if (lastTree) renderTree(lastTree);
+  });
+
+  $("#tree-collapse-all").addEventListener("click", () => {
+    expandedPaths.clear();
+    if (lastTree) renderTree(lastTree);
   });
   $("#mapping-form").addEventListener("submit", submitMapping);
   $("#mapping-cancel").addEventListener("click", closeMappingModal);

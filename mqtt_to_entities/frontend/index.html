@@ -21,6 +21,10 @@
       <div class="explorar-layout">
         <div class="tree-panel">
           <h2>Topics</h2>
+          <div class="tree-toolbar">
+            <input type="search" id="tree-search" placeholder="Buscar topic o valor..." autocomplete="off" />
+            <button type="button" id="tree-collapse-all" title="Plegar todo">&minus;</button>
+          </div>
           <div id="topic-tree"></div>
         </div>
         <div class="payload-panel">
@@ -56,11 +60,11 @@
         <label>Usuario <input type="text" id="conn-username" /></label>
         <label>Contrase&ntilde;a <input type="password" id="conn-password" /></label>
         <div class="actions">
-          <button type="submit">Conectar</button>
-          <button type="button" id="btn-reconnect">Reconectar</button>
+          <button type="submit" id="btn-connect">Conectar</button>
+          <button type="button" id="btn-disconnect">Desconectar</button>
         </div>
       </form>
-      <p>Estado: <span id="conn-status">desconocido</span></p>
+      <p>Estado: <span id="conn-status" class="status-pill">desconocido</span></p>
       <p id="conn-error" class="error"></p>
     </section>
   </main>
