@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.21
+
+- **Nuevo: icono del add-on**. Home Assistant ya muestra el logo de MQTT en la Tienda de Add-ons y en la ficha del add-on, en lugar del recuadro genérico.
+
 ## 1.20
 
 Se cierran los tres puntos menores que quedaban pendientes de la revisión anterior:
