@@ -61,6 +61,15 @@ HASSIO_DOCKER_NET = ipaddress.ip_network("172.30.32.0/23")
 # routers actually hand out, most common first.
 COMMON_LAN_RANGES = ("192.168.1.0/24", "192.168.0.0/24", "192.168.6.0/24", "10.0.0.0/24")
 
+# ipaddress reports these as private, but they are documentation/benchmark
+# blocks -- never a real LAN, so they are not worth scanning.
+DOC_AND_BENCH_NETS = (
+    "192.0.2.0/24",
+    "198.51.100.0/24",
+    "203.0.113.0/24",
+    "198.18.0.0/15",
+)
+
 
 def _own_ip() -> str | None:
     """The address the container would use for outbound traffic.
@@ -104,12 +113,53 @@ def local_cidr() -> str | None:
         return None
 
 
-def suggested_ranges() -> list[str]:
-    """Ranges to offer in the UI: the detected one first, then common LANs."""
-    detected = local_cidr()
-    if detected is None:
-        return list(COMMON_LAN_RANGES)
-    return [detected] + [r for r in COMMON_LAN_RANGES if r != detected]
+def cidr_from_address(address: str | None) -> str | None:
+    """The /24 around a plain IPv4 address, or None if it isn't a usable one.
+
+    Used with the address the browser is talking to Home Assistant on: the
+    add-on itself only sees Docker's internal network, but the request's Host
+    header carries the user's real LAN address, which is a far better guess than
+    any hardcoded default.
+    """
+    if not address:
+        return None
+
+    # Strip a port and any IPv6 brackets before parsing.
+    host = address.strip().rsplit(":", 1)[0] if address.count(":") == 1 else address.strip()
+    host = host.strip("[]")
+
+    try:
+        parsed = ipaddress.ip_address(host)
+    except ValueError:
+        return None  # a hostname, not an address
+
+    if parsed.version != 4 or parsed.is_loopback or parsed in HASSIO_DOCKER_NET:
+        return None
+    if not parsed.is_private or parsed.is_reserved or parsed.is_link_local:
+        # Never sweep a public range. Note ipaddress treats the documentation
+        # blocks (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24) as private, so
+        # they are excluded explicitly rather than by is_private alone.
+        return None
+    if any(parsed in ipaddress.ip_network(net) for net in DOC_AND_BENCH_NETS):
+        return None
+
+    try:
+        return str(ipaddress.ip_network(f"{host}/24", strict=False))
+    except ValueError:
+        return None
+
+
+def suggested_ranges(client_address: str | None = None) -> list[str]:
+    """Ranges to offer in the UI, best guess first.
+
+    Order: the LAN the browser is on, then anything the add-on could detect
+    itself, then the ranges home routers typically use.
+    """
+    ordered: list[str] = []
+    for candidate in (cidr_from_address(client_address), local_cidr(), *COMMON_LAN_RANGES):
+        if candidate and candidate not in ordered:
+            ordered.append(candidate)
+    return ordered
 
 
 def _hosts_to_scan(cidr: str) -> list[str]:

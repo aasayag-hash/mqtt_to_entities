@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.16
+
+- **Corregido**: el buscador de brokers de la 1.15 fallaba con "400 Bad Request" al apretar **Buscar**. El campo del rango quedaba vacío porque el add-on no puede ver la red de tu casa (Home Assistant lo aísla en una red interna), y al enviarse sin rango el pedido se rechazaba.
+  - Ahora el rango se deduce de la dirección con la que estás entrando a Home Assistant, que sí está en tu red real. En una instalación a la que entrás por `192.168.1.2`, el campo se completa solo con `192.168.1.0/24`.
+  - Si aun así el campo queda vacío, el buscador usa ese mismo criterio en el servidor en lugar de devolver un error.
+  - Funciona también detrás de un proxy inverso o entrando por un nombre de dominio; en ese caso usa la dirección real de la conexión.
+
 ## 1.15
 
 - **Nuevo: buscador de brokers en la red**. En la solapa **Conexión** hay un buscador que recorre el rango de red indicado probando los puertos 1883 y 8883, y muestra cuáles responden realmente como broker MQTT. A cada resultado se le envía un saludo MQTT de verdad, así que distingue un broker auténtico de cualquier otro servicio que esté escuchando en ese puerto, e indica además si pide usuario y contraseña. Al hacer clic en un resultado se completa solo el formulario de conexión.

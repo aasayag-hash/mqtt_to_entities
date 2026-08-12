@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -424,23 +424,53 @@ def disconnect_broker(broker_id: str) -> dict[str, Any]:
     return connection.to_dict()
 
 
-@app.get("/api/scan/default-range")
-def scan_default_range() -> dict[str, Any]:
-    """Range suggestions for the UI.
+def _client_lan_hint(request: Request) -> str | None:
+    """The browser's own LAN /24, deduced from how it reached Home Assistant.
 
-    "range" is the detected LAN /24, or null when the add-on can only see Home
-    Assistant's internal Docker network; "suggestions" always has usable options.
+    The add-on container only sees Docker's internal network, so its own address
+    is useless as a scan default. The Host header (or the peer address) is the
+    address the user typed to reach HA, which is on the network they want
+    scanned.
     """
+    for candidate in (
+        request.headers.get("x-forwarded-host"),
+        request.headers.get("host"),
+        request.client.host if request.client else None,
+    ):
+        hint = network_scan.cidr_from_address(candidate)
+        if hint:
+            return hint
+    return None
+
+
+@app.get("/api/scan/default-range")
+def scan_default_range(request: Request) -> dict[str, Any]:
+    """Range suggestions for the UI, best guess first.
+
+    "range" is the range to prefill: the browser's own LAN when it can be
+    deduced, otherwise whatever the add-on can detect. "suggestions" always
+    carries usable options even when nothing could be detected.
+    """
+    hint = _client_lan_hint(request)
     return {
-        "range": network_scan.local_cidr(),
-        "suggestions": network_scan.suggested_ranges(),
+        "range": hint or network_scan.local_cidr(),
+        "suggestions": network_scan.suggested_ranges(
+            request.headers.get("x-forwarded-host") or request.headers.get("host")
+        ),
     }
 
 
 @app.post("/api/scan")
-async def scan_network(request: ScanRequest) -> dict[str, Any]:
+async def scan_network(request: Request, body: ScanRequest) -> dict[str, Any]:
     """Sweep a local range for MQTT brokers so the user needn't know the IP."""
-    cidr = (request.range or network_scan.local_cidr() or "").strip()
+    # Fall back to the browser's LAN before giving up: an empty field should
+    # scan something sensible rather than return an error.
+    cidr = (
+        body.range
+        or _client_lan_hint(request)
+        or network_scan.local_cidr()
+        or ""
+    ).strip()
     if not cidr:
         raise HTTPException(
             status_code=400,

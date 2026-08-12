@@ -1003,15 +1003,11 @@ async function loadDefaultScanRange() {
         .join("");
     }
 
+    // Always leave a usable value in the field: an empty one made "Buscar"
+    // fail with a 400 instead of scanning anything.
     if (!$("#scan-range").value) {
-      // Only autofill a genuinely detected LAN range; otherwise leave the field
-      // empty so the placeholder and the dropdown invite a deliberate choice.
-      if (data.range) {
-        $("#scan-range").value = data.range;
-      } else {
-        $("#scan-status").textContent =
-          "Elegí el rango de tu red (el add-on no puede detectarlo por sí mismo).";
-      }
+      $("#scan-range").value =
+        data.range || (data.suggestions && data.suggestions[0]) || "192.168.1.0/24";
     }
   } catch (err) {
     /* offline or endpoint unavailable; the field is editable anyway */
