@@ -4,7 +4,7 @@ import logging
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -162,20 +162,54 @@ def _check_stale_mappings() -> None:
             _mark_unknown(mapping, f"sin datos por {int(now - last_update)}s")
 
 
+# Consecutive failure counts per watchdog task, so a permanent fault (read-only
+# /data, full disk) is reported once instead of every 30s forever.
+_watchdog_failures: dict[str, int] = {}
+
+# After this many consecutive failures, stop logging until it recovers.
+MAX_REPEATED_FAILURE_LOGS = 3
+
+
+def _run_watchdog_task(name: str, task: Callable[[], None], message: str) -> None:
+    """Run one watchdog step, logging failures without flooding the log.
+
+    A read-only /data made this emit a full traceback every 30s forever, which
+    buries every other message in the add-on log (and fills the disk further
+    when the cause was a full disk). The first few failures are logged, then it
+    goes quiet until the condition clears.
+    """
+    try:
+        task()
+    except Exception as exc:
+        failures = _watchdog_failures.get(name, 0) + 1
+        _watchdog_failures[name] = failures
+        if failures == 1:
+            # Full traceback once, when it is still news.
+            logger.exception(message)
+        elif failures <= MAX_REPEATED_FAILURE_LOGS:
+            logger.warning("%s: %s (fallo %d)", message, exc, failures)
+        elif failures == MAX_REPEATED_FAILURE_LOGS + 1:
+            logger.warning(
+                "%s: %s. Se dejará de informar hasta que se resuelva.", message, exc
+            )
+        return
+
+    if _watchdog_failures.pop(name, 0):
+        logger.info("%s: resuelto.", message)
+
+
 def _stale_watchdog() -> None:
     while not _shutdown.wait(STALE_CHECK_INTERVAL_SECONDS):
-        try:
-            _check_stale_mappings()
-        except Exception:
-            logger.exception("El chequeo de entidades sin datos falló")
-        try:
-            # last_update_at is otherwise only flushed on a clean shutdown,
-            # which never runs on SIGKILL/OOM. An add-on that restarts more
-            # often than that would keep resetting every mapping's staleness
-            # clock and never detect a dead topic, so piggyback a flush here.
-            mappings_store.flush()
-        except Exception:
-            logger.exception("No se pudo guardar el estado de las entidades")
+        _run_watchdog_task(
+            "stale_check", _check_stale_mappings, "El chequeo de entidades sin datos falló"
+        )
+        # last_update_at is otherwise only flushed on a clean shutdown, which
+        # never runs on SIGKILL/OOM. An add-on that restarts more often than
+        # that would keep resetting every mapping's staleness clock and never
+        # detect a dead topic, so piggyback a flush here.
+        _run_watchdog_task(
+            "flush", mappings_store.flush, "No se pudo guardar el estado de las entidades"
+        )
 
 
 def _on_broker_status_change(broker_id: str, status: str) -> None:
@@ -272,7 +306,19 @@ def _restore_brokers() -> None:
         )
         if not config.host:
             continue
-        mqtt_pool.add(config, broker_id=entry.get("id"), connect=True)
+        try:
+            # A hand-edited brokers.json can list the same endpoint twice; the
+            # UI cannot produce that, but restoring both would open two
+            # competing connections to it.
+            mqtt_pool.add(
+                config, broker_id=entry.get("id"), connect=True, check_duplicate=True
+            )
+        except DuplicateBrokerError as exc:
+            logger.warning(
+                "Se ignora el broker duplicado %s (ya existe %s)",
+                config.label(),
+                exc.existing.id,
+            )
 
     # From here on, losing a broker should blank its entities.
     _startup_done = True
@@ -363,7 +409,19 @@ def add_broker(config: BrokerConfigIn) -> dict[str, Any]:
             status_code=400,
             detail=f"Ya existe un broker para {config.host}:{config.port}",
         )
-    _persist_brokers()
+
+    try:
+        _persist_brokers()
+    except OSError as exc:
+        # The broker is already registered and connecting, so a failed save
+        # would leave it working in the UI until the next restart, when it
+        # silently disappears. Undo it instead of reporting a half-done add.
+        logger.error("No se pudo guardar el broker; se descarta: %s", exc)
+        mqtt_pool.remove(connection.id)
+        raise HTTPException(
+            status_code=500,
+            detail=f"No se pudo guardar la configuración del broker: {exc}",
+        )
     return connection.to_dict()
 
 
@@ -394,7 +452,21 @@ def update_broker(broker_id: str, config: BrokerConfigIn) -> dict[str, Any]:
         )
     if connection is None:
         raise HTTPException(status_code=404, detail="Broker no encontrado")
-    _persist_brokers()
+
+    try:
+        _persist_brokers()
+    except OSError as exc:
+        # No rollback here: the previous connection is already torn down, so
+        # removing the replacement would drop the broker altogether. Keep the
+        # working connection and report that only the save failed.
+        logger.error("El broker se actualizó pero no se pudo guardar: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"El broker se actualizó pero no se pudo guardar en disco ({exc}). "
+                "Los cambios se perderán al reiniciar el add-on."
+            ),
+        )
     return connection.to_dict()
 
 
@@ -402,7 +474,20 @@ def update_broker(broker_id: str, config: BrokerConfigIn) -> dict[str, Any]:
 def delete_broker(broker_id: str) -> dict[str, Any]:
     if not mqtt_pool.remove(broker_id):
         raise HTTPException(status_code=404, detail="Broker no encontrado")
-    _persist_brokers()
+
+    try:
+        _persist_brokers()
+    except OSError as exc:
+        # The connection is already closed and cannot be restored, so the
+        # deletion stands; only warn that it will come back on restart.
+        logger.error("El broker se eliminó pero no se pudo guardar: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"El broker se eliminó pero no se pudo guardar en disco ({exc}). "
+                "Volverá a aparecer al reiniciar el add-on."
+            ),
+        )
     return {"deleted": True}
 
 

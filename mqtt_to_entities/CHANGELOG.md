@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.18
+
+Cuatro correcciones de robustez para casos poco frecuentes pero molestos (ninguna cambia el uso normal):
+
+- **Corregido**: si `/data` quedaba sin espacio o de solo lectura, el add-on escribía un error completo en el log **cada 30 segundos, para siempre**, tapando cualquier otro mensaje. Ahora informa el problema las primeras veces, avisa que deja de repetirlo, y vuelve a informar (con un "resuelto") cuando se soluciona.
+- **Corregido**: si fallaba el guardado al agregar un broker, la conexión quedaba funcionando en la pantalla pero no en el disco, así que desaparecía al reiniciar el add-on sin ninguna explicación. Ahora, si no se puede guardar, el broker se descarta y el error se informa. Al editar o borrar, donde ya no se puede volver atrás, el mensaje aclara que el cambio se perderá al reiniciar.
+- **Corregido**: si el archivo de brokers tuviera dos entradas para la misma dirección (algo que la pantalla no permite crear, pero sí una edición manual del archivo), al arrancar se abrían dos conexiones al mismo servidor. Ahora la repetida se ignora y queda anotado en el log.
+- **Endurecimiento interno**: si en el futuro la conexión a un broker fallara al iniciarse, ya no quedaría registrado un broker a medias. Hoy no puede pasar; es una protección preventiva.
+
 ## 1.17
 
 - **Lista de resultados del buscador mejorada**: ahora cada resultado muestra la **dirección IP en grande**, con el puerto a continuación, y debajo la explicación en letra chica. Antes la IP quedaba comprimida entre las etiquetas y el texto, hasta el punto de no verse.

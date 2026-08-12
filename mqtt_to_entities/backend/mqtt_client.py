@@ -389,8 +389,19 @@ class MqttPool:
                 on_status_change=self._on_status_change_cb,
             )
             self._connections[broker_id] = connection
+
         if connect:
-            connection.connect()
+            # _start_client swallows connection errors today, so this cannot
+            # raise -- but if a future change validates TLS or DNS outside that
+            # guard, an exception here would leave a registered broker that was
+            # never persisted. Unregister before propagating.
+            try:
+                connection.connect()
+            except BaseException:
+                with self._lock:
+                    if self._connections.get(broker_id) is connection:
+                        del self._connections[broker_id]
+                raise
         return connection
 
     def get(self, broker_id: str) -> BrokerConnection | None:
@@ -446,7 +457,16 @@ class MqttPool:
         # Network work happens outside the lock: disconnect() and connect() both
         # do I/O, and holding the pool lock across that stalls every other route.
         old.disconnect()
-        replacement.connect()
+        try:
+            replacement.connect()
+        except BaseException:
+            # Same guard as add(): unreachable while _start_client swallows
+            # everything, but a raise here would leave the broker registered
+            # with a connection that was never started.
+            with self._lock:
+                if self._connections.get(broker_id) is replacement:
+                    del self._connections[broker_id]
+            raise
         return replacement
 
     def _find_by_endpoint_locked(
