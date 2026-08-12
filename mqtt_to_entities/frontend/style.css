@@ -647,20 +647,22 @@ form label.hidden {
   list-style: none;
   margin: 10px 0 0 0;
   padding: 0;
-  max-height: 220px;
+  max-height: 260px;
+  /* Vertical only: the rows wrap instead of forcing a horizontal scrollbar. */
+  overflow-x: hidden;
   overflow-y: auto;
 }
 
 .scan-result {
-  margin-bottom: 4px;
+  margin-bottom: 5px;
 }
 
 .scan-pick {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 9px;
   width: 100%;
-  padding: 7px 9px;
+  padding: 8px 10px;
   background: #fff;
   border: 1px solid #e0e0e0;
   border-radius: 4px;
@@ -674,15 +676,46 @@ form label.hidden {
   background: #f5fbff;
 }
 
+/* Badges stack in a column so every address starts at the same x. Fixed basis:
+   the address column absorbs the remaining space and wraps its detail text. */
+.scan-badges {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  flex: 0 0 62px;
+}
+
+/* min-width:0 lets this shrink inside the flex row so long text wraps. */
+.scan-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
 .scan-endpoint {
   font-family: monospace;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #1c1e21;
+  /* Keep the address on one line: break-all split it mid-octet ("192.168.1.4:18"
+     / "83") in a narrow panel, which reads as a different address. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scan-port {
+  color: #777;
   font-weight: 600;
 }
 
 .scan-detail {
-  margin-left: auto;
   color: #777;
   font-size: 0.75rem;
+  white-space: normal;
 }
 
 .scan-badge {
@@ -691,6 +724,7 @@ form label.hidden {
   border-radius: 3px;
   font-size: 0.7rem;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .scan-badge.ok {

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.17
+
+- **Lista de resultados del buscador mejorada**: ahora cada resultado muestra la **dirección IP en grande**, con el puerto a continuación, y debajo la explicación en letra chica. Antes la IP quedaba comprimida entre las etiquetas y el texto, hasta el punto de no verse.
+- Las etiquetas (`MQTT`, `?`, candado de credenciales) quedaron alineadas en una columna propia, así todas las direcciones arrancan a la misma altura y la lista se lee de un vistazo.
+- Se eliminó la barra de desplazamiento horizontal: el texto largo ahora baja de línea en lugar de empujar la lista hacia el costado.
+
 ## 1.16
 
 - **Corregido**: el buscador de brokers de la 1.15 fallaba con "400 Bad Request" al apretar **Buscar**. El campo del rango quedaba vacío porque el add-on no puede ver la red de tu casa (Home Assistant lo aísla en una red interna), y al enviarse sin rango el pedido se rechazaba.

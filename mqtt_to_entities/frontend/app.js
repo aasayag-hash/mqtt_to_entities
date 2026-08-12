@@ -1083,16 +1083,20 @@ function renderScanResults(data) {
       const badge = r.confirmed_mqtt
         ? '<span class="scan-badge ok">MQTT</span>'
         : '<span class="scan-badge unknown">?</span>';
+      // Short label so the badge column stays narrow enough that even a long
+      // address (192.168.100.200:8883) is never clipped; the detail line below
+      // already spells out what it means.
       const auth = r.requires_auth
-        ? '<span class="scan-badge auth">requiere login</span>'
+        ? '<span class="scan-badge auth" title="Requiere usuario y contraseña">🔒 login</span>'
         : "";
       return `
         <li class="scan-result" data-host="${escapeHtml(r.host)}" data-port="${r.port}">
           <button type="button" class="scan-pick">
-            ${badge}
-            <span class="scan-endpoint">${escapeHtml(r.host)}:${r.port}</span>
-            ${auth}
-            <span class="scan-detail">${escapeHtml(r.detail)}</span>
+            <span class="scan-badges">${badge}${auth}</span>
+            <span class="scan-info">
+              <span class="scan-endpoint">${escapeHtml(r.host)}<span class="scan-port">:${r.port}</span></span>
+              <span class="scan-detail">${escapeHtml(r.detail)}</span>
+            </span>
           </button>
         </li>`;
     })
