@@ -120,6 +120,30 @@ tr.row-editing td {
   background: #fff8e1;
 }
 
+.checkbox-label {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 0.9rem;
+}
+
+.checkbox-label input[type="checkbox"] {
+  display: inline-block;
+  width: auto;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.broker-sys-tag {
+  display: inline-block;
+  margin-top: 2px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: #eceff1;
+  color: #546e7a;
+  font-family: Consolas, Menlo, monospace;
+  font-size: 0.7rem;
+}
+
 .payload-error {
   color: #8a5a00;
   font-size: 0.85rem;

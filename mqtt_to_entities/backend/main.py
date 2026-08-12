@@ -216,6 +216,7 @@ def _restore_brokers() -> None:
             username=entry.get("username"),
             password=entry.get("password"),
             name=entry.get("name"),
+            subscribe_sys=entry.get("subscribe_sys", False),
         )
         if not config.host:
             continue
@@ -241,6 +242,7 @@ class BrokerConfigIn(BaseModel):
     username: str | None = None
     password: str | None = None
     name: str | None = None
+    subscribe_sys: bool = False
 
 
 class MappingIn(BaseModel):
@@ -268,6 +270,7 @@ def _to_broker_config(config: BrokerConfigIn) -> BrokerConfig:
         username=config.username,
         password=config.password,
         name=config.name,
+        subscribe_sys=config.subscribe_sys,
     )
 
 

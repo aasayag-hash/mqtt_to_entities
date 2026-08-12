@@ -71,6 +71,11 @@
             <label>Puerto <input type="number" id="conn-port" value="1883" required /></label>
             <label>Usuario <input type="text" id="conn-username" /></label>
             <label>Contrase&ntilde;a <input type="password" id="conn-password" /></label>
+            <label class="checkbox-label">
+              <input type="checkbox" id="conn-subscribe-sys" />
+              Suscribir a <code>$SYS</code>
+              <small class="field-hint">Estad&iacute;sticas internas del broker (uptime, clientes, bytes). El comod&iacute;n <code>#</code> no las incluye. Agrega muchos topics de diagn&oacute;stico al &aacute;rbol.</small>
+            </label>
             <div class="actions">
               <button type="submit" id="btn-add-broker">Agregar a brokers</button>
               <button type="button" id="btn-cancel-edit" class="hidden">Cancelar edici&oacute;n</button>

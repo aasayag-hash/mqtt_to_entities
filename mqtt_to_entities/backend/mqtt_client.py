@@ -34,6 +34,10 @@ class BrokerConfig:
     username: str | None = None
     password: str | None = None
     name: str | None = None
+    # "#" never matches topics starting with "$" (MQTT 3.1.1 §4.7.2), so the
+    # broker's own $SYS statistics need an explicit extra subscription. Off by
+    # default: it is hundreds of diagnostic topics most setups don't want.
+    subscribe_sys: bool = False
 
     def label(self) -> str:
         return self.name or f"{self.host}:{self.port}"
@@ -108,6 +112,7 @@ class BrokerConnection:
             "host": self.config.host,
             "port": self.config.port,
             "username": self.config.username,
+            "subscribe_sys": self.config.subscribe_sys,
             "status": self._status,
             "last_error": self._last_error,
             "topic_count": topic_count,
@@ -181,8 +186,14 @@ class BrokerConnection:
             self._set_status("connected")
             self._last_error = None
             self._connected_at = time.time()
-            client.subscribe("#")
-            logger.info("[%s] connected and subscribed to #", self.config.label())
+            topics = ["#"] + (["$SYS/#"] if self.config.subscribe_sys else [])
+            for topic in topics:
+                client.subscribe(topic)
+            logger.info(
+                "[%s] connected and subscribed to %s",
+                self.config.label(),
+                " + ".join(topics),
+            )
         else:
             # The broker refused us (bad credentials, not authorized...). Keep
             # retrying anyway: the cause is often fixable on the broker side, and

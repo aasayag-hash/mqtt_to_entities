@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.10
+
+- **Topics `$SYS` del broker**: el comodín `#` no incluye los topics que empiezan con `$` (así lo define el estándar MQTT), por lo que las estadísticas internas del broker no se veían. Ahora hay una casilla **Suscribir a `$SYS`** en el formulario de cada broker, desactivada por defecto para no llenar el árbol con topics de diagnóstico. Los brokers que la tengan activa se marcan con `+$SYS` en la planilla.
+- Nota: no hace falta suscribir a `/#` por separado, porque ya está incluido en `#`.
+
 ## 1.09
 
 - **Topics que no publican JSON**: antes, si un topic enviaba un valor suelto (por ejemplo `52.3` en lugar de `{"value":52.3}`), la entidad quedaba sin datos para siempre y sin ninguna explicación. Ahora se puede mapear el valor completo del topic y funciona.

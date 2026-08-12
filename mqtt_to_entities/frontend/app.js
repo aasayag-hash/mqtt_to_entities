@@ -858,7 +858,8 @@ function renderBrokers() {
     tr.innerHTML = `
       <td>
         <div class="broker-label">${escapeHtml(broker.label)}</div>
-        ${broker.name ? `<div class="broker-endpoint">${escapeHtml(broker.host)}:${broker.port}</div>` : ""}
+        ${broker.name ? `<div class="broker-endpoint">${escapeHtml(broker.host)}:${escapeHtml(String(broker.port))}</div>` : ""}
+        ${broker.subscribe_sys ? '<div class="broker-sys-tag">+$SYS</div>' : ""}
       </td>
       <td>${statusPillHtml(broker.status, broker.last_error)}</td>
       <td>${broker.topic_count}${
@@ -920,6 +921,7 @@ function startEditBroker(brokerId) {
   $("#conn-host").value = broker.host;
   $("#conn-port").value = broker.port;
   $("#conn-username").value = broker.username || "";
+  $("#conn-subscribe-sys").checked = Boolean(broker.subscribe_sys);
   // The API never returns stored passwords, so a blank field means "keep".
   $("#conn-password").value = "";
   $("#conn-password").placeholder = "(sin cambios)";
@@ -950,6 +952,7 @@ async function submitConnection(event) {
     port: parseInt($("#conn-port").value, 10),
     username: $("#conn-username").value.trim() || null,
     password: password || null,
+    subscribe_sys: $("#conn-subscribe-sys").checked,
   };
 
   // Editing with an untouched password field keeps the stored one.
