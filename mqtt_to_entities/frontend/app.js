@@ -1,4 +1,4 @@
-const API_BASE = "";
+const API_BASE = new URL(".", window.location.href).pathname;
 
 let currentTopic = null;
 let currentPayload = null;
@@ -21,7 +21,7 @@ function initTabs() {
 }
 
 async function loadTree() {
-  const res = await fetch(`${API_BASE}/api/tree`);
+  const res = await fetch(`${API_BASE}api/tree`);
   const tree = await res.json();
   const container = $("#topic-tree");
   container.innerHTML = "";
@@ -56,7 +56,7 @@ function renderTreeNode(node, label) {
 
 async function selectTopic(topic) {
   currentTopic = topic;
-  const res = await fetch(`${API_BASE}/api/topics/${encodeURIComponent(topic)}`);
+  const res = await fetch(`${API_BASE}api/topics/${encodeURIComponent(topic)}`);
   if (!res.ok) return;
   const data = await res.json();
   currentPayload = data.payload;
@@ -169,7 +169,7 @@ async function submitMapping(event) {
     domain_config: buildDomainConfig(domain),
   };
   const editingId = $("#mapping-form").dataset.editingId;
-  const url = editingId ? `${API_BASE}/api/mappings/${editingId}` : `${API_BASE}/api/mappings`;
+  const url = editingId ? `${API_BASE}api/mappings/${editingId}` : `${API_BASE}api/mappings`;
   const method = editingId ? "PUT" : "POST";
   await fetch(url, {
     method,
@@ -182,7 +182,7 @@ async function submitMapping(event) {
 }
 
 async function loadMappings() {
-  const res = await fetch(`${API_BASE}/api/mappings`);
+  const res = await fetch(`${API_BASE}api/mappings`);
   const mappings = await res.json();
   const tbody = document.querySelector("#mappings-table tbody");
   tbody.innerHTML = "";
@@ -204,7 +204,7 @@ async function loadMappings() {
 
   tbody.querySelectorAll(".delete-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      await fetch(`${API_BASE}/api/mappings/${btn.dataset.id}`, { method: "DELETE" });
+      await fetch(`${API_BASE}api/mappings/${btn.dataset.id}`, { method: "DELETE" });
       loadMappings();
     });
   });
@@ -246,7 +246,7 @@ function escapeHtml(value) {
 }
 
 async function loadStatus() {
-  const res = await fetch(`${API_BASE}/api/status`);
+  const res = await fetch(`${API_BASE}api/status`);
   const data = await res.json();
   $("#conn-status").textContent = data.status;
   $("#conn-error").textContent = data.last_error || "";
@@ -260,7 +260,7 @@ async function submitConnection(event) {
     username: $("#conn-username").value.trim() || null,
     password: $("#conn-password").value || null,
   };
-  await fetch(`${API_BASE}/api/connect`, {
+  await fetch(`${API_BASE}api/connect`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -277,7 +277,7 @@ function init() {
 
   $("#connection-form").addEventListener("submit", submitConnection);
   $("#btn-reconnect").addEventListener("click", async () => {
-    await fetch(`${API_BASE}/api/reconnect`, { method: "POST" });
+    await fetch(`${API_BASE}api/reconnect`, { method: "POST" });
     loadStatus();
   });
   $("#mapping-form").addEventListener("submit", submitMapping);
