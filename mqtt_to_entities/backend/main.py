@@ -25,16 +25,16 @@ FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
 VALID_DOMAINS = {"sensor", "binary_sensor", "switch", "number", "text", "select"}
 
+# Home Assistant's reserved state for "no data"; shown as desconocido in the UI.
+HA_UNKNOWN_STATE = "unknown"
+
+# Set once the saved values have been restored and the brokers have been started,
+# so the initial connection transitions don't blank the restored values.
+_startup_done = False
+
 
 def _on_mqtt_message(broker_id: str, topic: str, state: TopicState) -> None:
-    for mapping in mappings_store.list_mappings():
-        if mapping["topic"] != topic:
-            continue
-        # Mappings are bound to one broker; legacy rows without broker_id match
-        # any broker so they keep working until edited.
-        mapping_broker = mapping.get("broker_id")
-        if mapping_broker and mapping_broker != broker_id:
-            continue
+    for mapping in mappings_store.mappings_for_topic(topic, broker_id):
         _apply_mapping(mapping, state)
 
 
@@ -62,7 +62,36 @@ def _apply_mapping(mapping: dict[str, Any], state: TopicState) -> None:
         mappings_store.set_last_error(mapping["id"], error)
 
 
-mqtt_pool = MqttPool(on_message=_on_mqtt_message)
+def _on_broker_status_change(broker_id: str, status: str) -> None:
+    """Mark a broker's entities unknown while it is not connected.
+
+    Without this the entities keep showing the last value they ever got, which
+    looks like live data long after the broker went away. Home Assistant renders
+    the literal state "unknown" as unavailable/desconocido.
+    """
+    if status == "connected":
+        return
+    # The very first "connecting" happens while restoring saved values; blanking
+    # them there would defeat the restore.
+    if not _startup_done:
+        return
+
+    for mapping in mappings_store.list_mappings():
+        # Legacy mappings without broker_id are fed by any broker, so another
+        # one may still be publishing; leave those alone.
+        if mapping.get("broker_id") != broker_id:
+            continue
+        ok, error = ha_api.set_state(mapping["entity_id"], HA_UNKNOWN_STATE)
+        if ok:
+            mappings_store.set_last_value(mapping["id"], HA_UNKNOWN_STATE)
+        else:
+            mappings_store.set_last_error(mapping["id"], error)
+
+
+mqtt_pool = MqttPool(
+    on_message=_on_mqtt_message,
+    on_status_change=_on_broker_status_change,
+)
 
 
 def _persist_brokers() -> None:
@@ -70,7 +99,25 @@ def _persist_brokers() -> None:
 
 
 @app.on_event("startup")
+def _restore_last_values() -> None:
+    # Runs before the brokers connect: last_value is already the post-transform
+    # state, so re-pushing it keeps the entity's last known value across
+    # restarts instead of it disappearing until the next matching message. A
+    # stored "unknown" is re-pushed as-is, which is what we want.
+    for mapping in mappings_store.list_mappings():
+        last_value = mapping.get("last_value")
+        if last_value is None:
+            continue
+        ok, error = ha_api.set_state(mapping["entity_id"], last_value)
+        if not ok:
+            mappings_store.set_last_error(mapping["id"], error)
+
+
+@app.on_event("startup")
 def _restore_brokers() -> None:
+    # Registered after _restore_last_values so the initial "connecting"
+    # transition cannot blank out the values that were just restored.
+    global _startup_done
     for entry in brokers_store.list_brokers():
         config = BrokerConfig(
             host=entry.get("host", ""),
@@ -83,19 +130,15 @@ def _restore_brokers() -> None:
             continue
         mqtt_pool.add(config, broker_id=entry.get("id"), connect=True)
 
+    # From here on, losing a broker should blank its entities.
+    _startup_done = True
 
-@app.on_event("startup")
-def _restore_last_values() -> None:
-    # last_value is already the post-transform state; re-push it as-is so the
-    # entity keeps its last known value across HA Core / add-on restarts
-    # instead of disappearing until the next matching MQTT message arrives.
-    for mapping in mappings_store.list_mappings():
-        last_value = mapping.get("last_value")
-        if last_value is None:
-            continue
-        ok, error = ha_api.set_state(mapping["entity_id"], last_value)
-        if not ok:
-            mappings_store.set_last_error(mapping["id"], error)
+
+@app.on_event("shutdown")
+def _flush_on_shutdown() -> None:
+    # last_value/last_error are batched in memory; make sure the newest ones
+    # reach disk when the add-on stops cleanly.
+    mappings_store.flush()
 
 
 class BrokerConfigIn(BaseModel):

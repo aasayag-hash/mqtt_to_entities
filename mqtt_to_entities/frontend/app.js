@@ -422,6 +422,11 @@ function setSelectedUnit(unit) {
 }
 
 function openMappingModal(fieldPath) {
+  // Creating, not editing: clear any leftover edit target, or saving would PUT
+  // over the mapping that was opened earlier instead of creating a new one.
+  delete $("#mapping-form").dataset.editingId;
+  $("#mapping-modal-title").textContent = "Nuevo mapeo";
+
   $("#mapping-topic").textContent = currentTopic;
   const select = $("#mapping-field-path");
   select.innerHTML = "";
@@ -432,15 +437,30 @@ function openMappingModal(fieldPath) {
   select.value = fieldPath;
   $("#mapping-domain").value = "sensor";
   $("#mapping-entity-id").value = suggestEntityId(currentTopic, fieldPath, "sensor");
-  setSelectedUnit("");
+  resetDomainConfigFields();
   updateDomainConfigVisibility();
   showMappingError("");
   $("#mapping-modal").classList.remove("hidden");
 }
 
+// Every per-domain field, so a new mapping never inherits the previous one's
+// on/off values, min/max, options or custom unit.
+function resetDomainConfigFields() {
+  setSelectedUnit("");
+  setSelectedPrecision(null);
+  $("#cfg-on-values").value = "";
+  $("#cfg-off-values").value = "";
+  $("#cfg-min").value = "";
+  $("#cfg-max").value = "";
+  $("#cfg-step").value = "";
+  $("#cfg-options").value = "";
+}
+
 function closeMappingModal() {
   $("#mapping-modal").classList.add("hidden");
   showMappingError("");
+  // Cancelling an edit must not leave the form pointing at that mapping.
+  delete $("#mapping-form").dataset.editingId;
 }
 
 function showMappingError(message) {
@@ -647,7 +667,10 @@ function renderMappings() {
       const mapping = allMappings.find((m) => m.id === btn.dataset.id);
       if (!mapping) return;
       currentTopic = mapping.topic;
+      // openMappingModal resets the form (and clears editingId), so the edit
+      // target is applied after it.
       openMappingModal(mapping.field_path);
+      $("#mapping-modal-title").textContent = "Editar mapeo";
       $("#mapping-entity-id").value = mapping.entity_id;
       $("#mapping-domain").value = mapping.domain;
       updateDomainConfigVisibility();

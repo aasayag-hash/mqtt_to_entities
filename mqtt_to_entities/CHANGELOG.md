@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.07
+
+Correcciones a partir de una revisión del código:
+
+- **Corregido**: un corte de luz o un reinicio forzado a mitad de escritura podía dejar `mappings.json` corrupto, y en ese caso el add-on quedaba inservible de forma permanente (todos los endpoints devolvían error y no se podía ver ni editar ninguna entidad). Ahora las escrituras son atómicas y, si el archivo estuviera dañado, el add-on arranca igual y preserva una copia del archivo original.
+- **Corregido**: si se abría una entidad con **Editar**, se cancelaba, y después se creaba una entidad nueva, la nueva no se creaba y en su lugar se sobrescribía la que se había abierto antes.
+- **Corregido**: al crear un mapeo nuevo, el formulario heredaba los valores de configuración del mapeo anterior (valores ON/OFF, mínimo, máximo, opciones).
+- **Rendimiento**: cada mensaje MQTT leía el archivo de entidades completo del disco, incluso los mensajes de topics sin ninguna entidad asociada (la enorme mayoría). En un broker con mucho tráfico esto castigaba la tarjeta SD y trababa la interfaz. Ahora la lista se mantiene en memoria y los valores se guardan en disco de forma agrupada.
+- **Reconexión indefinida**: un broker que se caía podía quedar en "desconectado" para siempre, sin volver a intentar. Ahora reintenta indefinidamente, con espera progresiva, hasta que el broker vuelva o se lo quite de la lista. También reintenta cuando el broker rechaza la conexión (por ejemplo, credenciales incorrectas), porque suele ser algo que se corrige del lado del broker.
+- **Entidades en desconocido al perder conexión**: cuando se corta la conexión con un broker, sus entidades pasan a `unknown` en Home Assistant en lugar de seguir mostrando el último valor recibido como si fuera actual. Al volver la conexión, se actualizan con el primer dato nuevo. Los valores guardados se siguen restaurando al reiniciar el add-on.
+- El estado del broker ahora refleja el fallo y el motivo mientras reintenta, en lugar de quedar en "conectando".
+- El título del formulario de entidad distingue entre **Nuevo mapeo** y **Editar mapeo**.
+
 ## 1.06
 
 - Se agrega este changelog, así la lista de cambios aparece en el diálogo de actualización del add-on en Home Assistant.
