@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.13
+
+- **Limpieza interna**: al rechazar el alta de un broker repetido, ya no se arma el objeto de conexión que luego se descartaba. No cambia nada de lo que se ve ni corrige ninguna falla; deja el código preparado para que eso no se convierta en un problema más adelante.
+
 ## 1.12
 
 Los cuatro hallazgos menores que quedaban del review anterior, ya resueltos:

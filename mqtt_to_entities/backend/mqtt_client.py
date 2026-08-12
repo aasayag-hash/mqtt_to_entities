@@ -372,17 +372,22 @@ class MqttPool:
         check_duplicate: bool = False,
     ) -> BrokerConnection:
         broker_id = broker_id or str(uuid.uuid4())
-        connection = BrokerConnection(
-            broker_id,
-            config,
-            on_message=self._on_message_cb,
-            on_status_change=self._on_status_change_cb,
-        )
         with self._lock:
+            # Checked and registered under the same lock so two concurrent adds
+            # for one endpoint can't both create a connection. The connection is
+            # built inside the lock so the rejected path doesn't construct one at
+            # all -- cheap today (the constructor only sets attributes; the paho
+            # client is created later in connect()), but it keeps it that way.
             if check_duplicate:
                 duplicate = self._find_by_endpoint_locked(config.host, config.port)
                 if duplicate is not None:
                     raise DuplicateBrokerError(duplicate)
+            connection = BrokerConnection(
+                broker_id,
+                config,
+                on_message=self._on_message_cb,
+                on_status_change=self._on_status_change_cb,
+            )
             self._connections[broker_id] = connection
         if connect:
             connection.connect()
