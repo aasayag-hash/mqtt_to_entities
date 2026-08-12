@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from backend import brokers_store, domain_transform, ha_api, mappings_store
 from backend.json_paths import flatten_paths, resolve_path
-from backend.mqtt_client import BrokerConfig, MqttPool, TopicState
+from backend.mqtt_client import BrokerConfig, DuplicateBrokerError, MqttPool, TopicState
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mqtt_to_entities.main")
@@ -168,6 +168,14 @@ def _stale_watchdog() -> None:
             _check_stale_mappings()
         except Exception:
             logger.exception("El chequeo de entidades sin datos falló")
+        try:
+            # last_update_at is otherwise only flushed on a clean shutdown,
+            # which never runs on SIGKILL/OOM. An add-on that restarts more
+            # often than that would keep resetting every mapping's staleness
+            # clock and never detect a dead topic, so piggyback a flush here.
+            mappings_store.flush()
+        except Exception:
+            logger.exception("No se pudo guardar el estado de las entidades")
 
 
 def _on_broker_status_change(broker_id: str, status: str) -> None:
@@ -343,14 +351,13 @@ def add_broker(config: BrokerConfigIn) -> dict[str, Any]:
     if not config.host.strip():
         raise HTTPException(status_code=400, detail="El host no puede estar vacío")
 
-    existing = mqtt_pool.find_by_endpoint(config.host, config.port)
-    if existing is not None:
+    try:
+        connection = mqtt_pool.add(_to_broker_config(config), check_duplicate=True)
+    except DuplicateBrokerError:
         raise HTTPException(
             status_code=400,
             detail=f"Ya existe un broker para {config.host}:{config.port}",
         )
-
-    connection = mqtt_pool.add(_to_broker_config(config))
     _persist_brokers()
     return connection.to_dict()
 

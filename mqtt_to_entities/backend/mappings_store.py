@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
@@ -105,9 +106,10 @@ def _persist() -> None:
 
 def list_mappings() -> list[dict[str, Any]]:
     with _lock:
-        # Copy so callers iterating the result can't be tripped up by a
-        # concurrent write, and can't mutate the cache by accident.
-        return [dict(m) for m in _get_cache()]
+        # Deep copy so callers iterating the result can't be tripped up by a
+        # concurrent write, and can't mutate the cache by accident -- a plain
+        # dict(m) still shares nested values like domain_config with the cache.
+        return [copy.deepcopy(m) for m in _get_cache()]
 
 
 def mappings_for_topic(topic: str, broker_id: str | None = None) -> list[dict[str, Any]]:
@@ -127,7 +129,7 @@ def mappings_for_topic(topic: str, broker_id: str | None = None) -> list[dict[st
             mapping_broker = mapping.get("broker_id")
             if broker_id and mapping_broker and mapping_broker != broker_id:
                 continue
-            matches.append(dict(mapping))
+            matches.append(copy.deepcopy(mapping))
         return matches
 
 
@@ -135,29 +137,29 @@ def get_mapping(mapping_id: str) -> dict[str, Any] | None:
     with _lock:
         for mapping in _get_cache():
             if mapping["id"] == mapping_id:
-                return dict(mapping)
+                return copy.deepcopy(mapping)
     return None
 
 
 def create_mapping(mapping: dict[str, Any]) -> dict[str, Any]:
     with _lock:
         mappings = _get_cache()
-        mapping = dict(mapping)
+        mapping = copy.deepcopy(mapping)
         mapping["id"] = str(uuid.uuid4())
         mapping.setdefault("last_value", None)
         mapping.setdefault("last_error", None)
         mappings.append(mapping)
         _persist()
-        return dict(mapping)
+        return copy.deepcopy(mapping)
 
 
 def update_mapping(mapping_id: str, updates: dict[str, Any]) -> dict[str, Any] | None:
     with _lock:
         for mapping in _get_cache():
             if mapping["id"] == mapping_id:
-                mapping.update(updates)
+                mapping.update(copy.deepcopy(updates))
                 _persist()
-                return dict(mapping)
+                return copy.deepcopy(mapping)
         return None
 
 

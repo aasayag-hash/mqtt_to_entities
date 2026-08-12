@@ -68,6 +68,10 @@ class BrokerConnection:
         # Ordered by last activity so overflow can evict the stalest topics.
         self._topics: OrderedDict[str, TopicState] = OrderedDict()
         self._evicted_topics = 0
+        # Messages seen on topics that have since been evicted. A reappearing
+        # topic's own message_count restarts at 1, which under-counted the
+        # tree totals; this keeps the grand total accurate across eviction.
+        self._evicted_message_total = 0
         self._lock = threading.Lock()
         # Guards connect/disconnect/retry transitions, separate from the topic
         # cache lock so a message burst never blocks a reconnect.
@@ -119,7 +123,9 @@ class BrokerConnection:
     def to_dict(self) -> dict[str, Any]:
         with self._lock:
             topic_count = len(self._topics)
-            message_total = sum(s.message_count for s in self._topics.values())
+            message_total = self._evicted_message_total + sum(
+                s.message_count for s in self._topics.values()
+            )
         return {
             "id": self.id,
             "name": self.config.name,
@@ -304,8 +310,9 @@ class BrokerConnection:
             self._topics.move_to_end(msg.topic)
 
             while len(self._topics) > MAX_CACHED_TOPICS:
-                stale_topic, _ = self._topics.popitem(last=False)
+                stale_topic, stale_state = self._topics.popitem(last=False)
                 self._evicted_topics += 1
+                self._evicted_message_total += stale_state.message_count
                 if self._evicted_topics % 1000 == 1:
                     logger.warning(
                         "[%s] cache de topics lleno (%s); descartando los menos "
@@ -335,6 +342,14 @@ class BrokerConnection:
         return _build_tree(snapshot)
 
 
+class DuplicateBrokerError(Exception):
+    """Raised by MqttPool.add(check_duplicate=True) for an existing host:port."""
+
+    def __init__(self, existing: "BrokerConnection") -> None:
+        self.existing = existing
+        super().__init__(f"duplicate broker for {existing.config.label()}")
+
+
 class MqttPool:
     """Holds every configured broker connection, keyed by broker id."""
 
@@ -348,7 +363,14 @@ class MqttPool:
         self._on_message_cb = on_message
         self._on_status_change_cb = on_status_change
 
-    def add(self, config: BrokerConfig, broker_id: str | None = None, connect: bool = True) -> BrokerConnection:
+    def add(
+        self,
+        config: BrokerConfig,
+        broker_id: str | None = None,
+        connect: bool = True,
+        *,
+        check_duplicate: bool = False,
+    ) -> BrokerConnection:
         broker_id = broker_id or str(uuid.uuid4())
         connection = BrokerConnection(
             broker_id,
@@ -357,6 +379,10 @@ class MqttPool:
             on_status_change=self._on_status_change_cb,
         )
         with self._lock:
+            if check_duplicate:
+                duplicate = self._find_by_endpoint_locked(config.host, config.port)
+                if duplicate is not None:
+                    raise DuplicateBrokerError(duplicate)
             self._connections[broker_id] = connection
         if connect:
             connection.connect()
@@ -388,11 +414,16 @@ class MqttPool:
         connection.disconnect()
         return self.add(config, broker_id=broker_id, connect=True)
 
-    def find_by_endpoint(self, host: str, port: int) -> BrokerConnection | None:
-        for connection in self.list():
+    def _find_by_endpoint_locked(self, host: str, port: int) -> BrokerConnection | None:
+        """Same as find_by_endpoint, but assumes self._lock is already held."""
+        for connection in self._connections.values():
             if connection.config.host == host and connection.config.port == port:
                 return connection
         return None
+
+    def find_by_endpoint(self, host: str, port: int) -> BrokerConnection | None:
+        with self._lock:
+            return self._find_by_endpoint_locked(host, port)
 
     def configs(self) -> list[dict[str, Any]]:
         return [

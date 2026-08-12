@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.12
+
+Los cuatro hallazgos menores que quedaban del review anterior, ya resueltos:
+
+- **Corregido**: si el add-on se reiniciaba muy seguido (menos de 5 minutos entre reinicios), el reloj que detecta topics sin datos nunca llegaba a cumplirse y las entidades nunca pasaban a `unknown` aunque el dispositivo estuviera realmente desconectado. Ahora ese dato se guarda en disco cada 30 segundos en lugar de solo al apagar el add-on de forma prolija.
+- **Corregido**: al editar la configuración avanzada de una entidad (por ejemplo el redondeo), el valor guardado podía compartirse por accidente con la copia mostrada en la web. No causaba errores hoy, pero era un riesgo latente. Ahora cada copia es independiente.
+- **Corregido**: si se enviaban dos altas de broker al mismo tiempo para la misma dirección, ambas podían crear una conexión duplicada. Ahora la verificación es atómica y sólo una prospera.
+- **Corregido**: el contador de mensajes por rama del árbol de topics podía quedar por debajo del real después de que un topic muy antiguo se descartara de la memoria y luego volviera a aparecer. Ahora el total se sigue contando bien.
+
 ## 1.11
 
 Correcciones a problemas introducidos por las versiones 1.07 y 1.08:
