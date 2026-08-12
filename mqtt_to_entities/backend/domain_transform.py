@@ -23,12 +23,43 @@ def transform(domain: str, config: dict[str, Any], raw_value: Any) -> tuple[Any,
     raise TransformError(f"Unsupported domain: {domain}")
 
 
+def _apply_precision(config: dict[str, Any], raw_value: Any) -> Any:
+    """Round a numeric value to the configured number of decimals.
+
+    MQTT floats often arrive as 57.560001373291016; "precision" trims that to
+    57.56 (2) or 58 (0). Non-numeric values pass through untouched so a text
+    payload on a sensor is not turned into an error.
+    """
+    precision = config.get("precision")
+    if precision is None:
+        return raw_value
+
+    try:
+        number = float(raw_value)
+    except (TypeError, ValueError):
+        return raw_value
+
+    try:
+        digits = int(precision)
+    except (TypeError, ValueError):
+        return raw_value
+
+    if digits < 0:
+        return raw_value
+
+    rounded = round(number, digits)
+    # 0 decimals should read as "58", not "58.0".
+    if digits == 0:
+        return int(rounded)
+    return rounded
+
+
 def _transform_sensor(config: dict[str, Any], raw_value: Any) -> tuple[Any, dict[str, Any]]:
     attributes: dict[str, Any] = {}
     unit = config.get("unit_of_measurement")
     if unit:
         attributes["unit_of_measurement"] = unit
-    return raw_value, attributes
+    return _apply_precision(config, raw_value), attributes
 
 
 def _match_on_off(config: dict[str, Any], raw_value: Any, on_state: str, off_state: str) -> tuple[str, dict[str, Any]]:
@@ -63,7 +94,9 @@ def _transform_number(config: dict[str, Any], raw_value: Any) -> tuple[Any, dict
     if maximum is not None and value > maximum:
         raise TransformError(f"Value {value} above max {maximum}")
 
-    if value == int(value):
+    value = _apply_precision(config, value)
+
+    if isinstance(value, float) and value == int(value):
         value = int(value)
 
     attributes: dict[str, Any] = {}

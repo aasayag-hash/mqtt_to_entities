@@ -21,13 +21,17 @@ function initTabs() {
       btn.classList.add("active");
       $(`#tab-${btn.dataset.tab}`).classList.add("active");
       if (btn.dataset.tab === "entidades") loadMappings();
-      if (btn.dataset.tab === "conexion") loadStatus();
+      if (btn.dataset.tab === "conexion") loadBrokers();
     });
   });
 }
 
+function brokerQuery(prefix = "?") {
+  return selectedBrokerId ? `${prefix}broker_id=${encodeURIComponent(selectedBrokerId)}` : "";
+}
+
 async function loadTree() {
-  const res = await fetch(`${API_BASE}api/tree`);
+  const res = await fetch(`${API_BASE}api/tree${brokerQuery()}`);
   const tree = await res.json();
   renderTree(tree);
 }
@@ -172,7 +176,7 @@ function highlightRow(row) {
 
 async function selectTopic(topic) {
   currentTopic = topic;
-  const res = await fetch(`${API_BASE}api/topics/${encodeURIComponent(topic)}`);
+  const res = await fetch(`${API_BASE}api/topics/${encodeURIComponent(topic)}${brokerQuery()}`);
   if (!res.ok) return;
   const data = await res.json();
   currentPayload = data.payload;
@@ -312,6 +316,54 @@ const UNIT_GROUPS = [
 
 const UNIT_CUSTOM_VALUE = "__custom__";
 
+const PRECISION_OPTIONS = [
+  { value: "", label: "Sin redondeo (valor original)" },
+  { value: "0", label: "0 decimales (entero)" },
+  { value: "1", label: "1 decimal" },
+  { value: "2", label: "2 decimales" },
+  { value: "3", label: "3 decimales" },
+  { value: "4", label: "4 decimales" },
+];
+
+const PRECISION_SAMPLE = 57.560001373291016;
+
+function populatePrecisionSelect() {
+  const select = $("#cfg-precision");
+  select.innerHTML = "";
+  PRECISION_OPTIONS.forEach((opt) => {
+    const el = document.createElement("option");
+    el.value = opt.value;
+    el.textContent = opt.label;
+    select.appendChild(el);
+  });
+}
+
+// Mirrors backend _apply_precision so the hint shows the real result.
+function updatePrecisionExample() {
+  const raw = $("#cfg-precision").value;
+  const target = $("#precision-example");
+  if (!target) return;
+
+  if (raw === "") {
+    target.textContent = String(PRECISION_SAMPLE);
+    return;
+  }
+  const digits = parseInt(raw, 10);
+  const rounded = Number(PRECISION_SAMPLE.toFixed(digits));
+  target.textContent = digits === 0 ? String(Math.round(PRECISION_SAMPLE)) : String(rounded);
+}
+
+function getSelectedPrecision() {
+  const raw = $("#cfg-precision").value;
+  return raw === "" ? null : parseInt(raw, 10);
+}
+
+function setSelectedPrecision(precision) {
+  $("#cfg-precision").value =
+    precision === null || precision === undefined ? "" : String(precision);
+  updatePrecisionExample();
+}
+
 function populateUnitSelect() {
   const select = $("#cfg-unit");
   select.innerHTML = "";
@@ -426,12 +478,22 @@ function updateDomainConfigVisibility() {
   $("#domain-config-onoff").classList.toggle("hidden", !["binary_sensor", "switch"].includes(domain));
   $("#domain-config-number").classList.toggle("hidden", domain !== "number");
   $("#domain-config-select").classList.toggle("hidden", domain !== "select");
+  // Rounding only makes sense for the numeric domains.
+  $("#domain-config-precision").classList.toggle(
+    "hidden",
+    !["sensor", "number"].includes(domain)
+  );
 }
 
 function buildDomainConfig(domain) {
+  const precision = getSelectedPrecision();
+
   if (domain === "sensor") {
+    const cfg = {};
     const unit = getSelectedUnit();
-    return unit ? { unit_of_measurement: unit } : {};
+    if (unit) cfg.unit_of_measurement = unit;
+    if (precision !== null) cfg.precision = precision;
+    return cfg;
   }
   if (domain === "binary_sensor" || domain === "switch") {
     return {
@@ -444,6 +506,7 @@ function buildDomainConfig(domain) {
     if ($("#cfg-min").value !== "") cfg.min = parseFloat($("#cfg-min").value);
     if ($("#cfg-max").value !== "") cfg.max = parseFloat($("#cfg-max").value);
     if ($("#cfg-step").value !== "") cfg.step = parseFloat($("#cfg-step").value);
+    if (precision !== null) cfg.precision = precision;
     return cfg;
   }
   if (domain === "select") {
@@ -468,6 +531,7 @@ async function submitMapping(event) {
     entity_id: $("#mapping-entity-id").value.trim(),
     domain,
     domain_config: buildDomainConfig(domain),
+    broker_id: selectedBrokerId,
   };
   const editingId = $("#mapping-form").dataset.editingId;
   const url = editingId ? `${API_BASE}api/mappings/${editingId}` : `${API_BASE}api/mappings`;
@@ -521,7 +585,7 @@ function renderMappings() {
   if (mappings.length === 0) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
-    td.colSpan = 7;
+    td.colSpan = 8;
     td.className = "table-empty";
     td.textContent = allMappings.length
       ? "Sin coincidencias"
@@ -539,8 +603,16 @@ function renderMappings() {
       ? '<span class="cell-status ok">ok</span>'
       : '<span class="cell-status waiting">esperando dato</span>';
 
+    const broker = brokers.find((b) => b.id === mapping.broker_id);
+    const brokerLabel = broker
+      ? escapeHtml(broker.label)
+      : mapping.broker_id
+      ? '<span class="broker-missing" title="El broker fue borrado">(borrado)</span>'
+      : '<span class="broker-any" title="Mapeo previo a los multi-broker: escucha cualquier broker">(cualquiera)</span>';
+
     const tr = document.createElement("tr");
     tr.innerHTML = `
+      <td>${brokerLabel}</td>
       <td class="cell-topic">${escapeHtml(mapping.topic)}</td>
       <td>${escapeHtml(mapping.field_path)}</td>
       <td>${escapeHtml(mapping.entity_id)}</td>
@@ -555,7 +627,7 @@ function renderMappings() {
     if (mapping.last_error) {
       const errRow = document.createElement("tr");
       errRow.className = "error-detail-row";
-      errRow.innerHTML = `<td colspan="7">${escapeHtml(mapping.last_error)}</td>`;
+      errRow.innerHTML = `<td colspan="8">${escapeHtml(mapping.last_error)}</td>`;
       tbody.appendChild(tr);
       tbody.appendChild(errRow);
       return;
@@ -597,6 +669,8 @@ function filterMappings(mappings, filter) {
 }
 
 function fillDomainConfig(domain, config) {
+  setSelectedPrecision(config.precision ?? null);
+
   if (domain === "sensor") {
     setSelectedUnit(config.unit_of_measurement);
   } else if (domain === "binary_sensor" || domain === "switch") {
@@ -619,81 +693,240 @@ function escapeHtml(value) {
 
 const STATUS_LABELS = {
   connected: "conectado",
+  connecting: "conectando",
   disconnected: "desconectado",
   error: "error",
 };
 
-async function loadStatus() {
-  const res = await fetch(`${API_BASE}api/status`);
-  const data = await res.json();
-  applyStatus(data.status, data.last_error);
+let brokers = [];
+let selectedBrokerId = null;
+let editingBrokerId = null;
+
+async function loadBrokers() {
+  const res = await fetch(`${API_BASE}api/brokers`);
+  brokers = await res.json();
+  renderBrokers();
+  syncBrokerSelect();
 }
 
-function applyStatus(status, lastError) {
-  const pill = $("#conn-status");
-  pill.textContent = STATUS_LABELS[status] || status;
-  pill.classList.remove("connected", "disconnected", "error");
-  pill.classList.add(status === "connected" ? "connected" : status === "error" ? "error" : "disconnected");
+function statusPillHtml(status, lastError) {
+  const cls =
+    status === "connected"
+      ? "connected"
+      : status === "error"
+      ? "error"
+      : status === "connecting"
+      ? "waiting"
+      : "disconnected";
+  const title = lastError ? ` title="${escapeHtml(lastError)}"` : "";
+  return `<span class="status-pill ${cls}"${title}>${STATUS_LABELS[status] || status}</span>`;
+}
 
-  const connected = status === "connected";
-  const connectBtn = $("#btn-connect");
-  connectBtn.textContent = connected ? "Conectado" : "Conectar";
-  connectBtn.classList.toggle("connected", connected);
-  connectBtn.disabled = connected;
-  $("#btn-disconnect").disabled = !connected;
+function renderBrokers() {
+  const tbody = document.querySelector("#brokers-table tbody");
+  tbody.innerHTML = "";
 
-  $("#conn-error").textContent = lastError || "";
+  if (brokers.length === 0) {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      '<td colspan="5" class="table-empty">Sin brokers. Agregá uno con el formulario de la izquierda.</td>';
+    tbody.appendChild(tr);
+    return;
+  }
+
+  brokers.forEach((broker) => {
+    const tr = document.createElement("tr");
+    if (broker.id === editingBrokerId) tr.classList.add("row-editing");
+    tr.innerHTML = `
+      <td>
+        <div class="broker-label">${escapeHtml(broker.label)}</div>
+        ${broker.name ? `<div class="broker-endpoint">${escapeHtml(broker.host)}:${broker.port}</div>` : ""}
+      </td>
+      <td>${statusPillHtml(broker.status, broker.last_error)}</td>
+      <td>${broker.topic_count}</td>
+      <td>${broker.message_total}</td>
+      <td class="broker-actions">
+        <button class="broker-reconnect" data-id="${broker.id}">Reconectar</button>
+        <button class="broker-edit" data-id="${broker.id}">Editar</button>
+        <button class="broker-delete" data-id="${broker.id}">Borrar</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+
+    if (broker.last_error) {
+      const errRow = document.createElement("tr");
+      errRow.className = "error-detail-row";
+      errRow.innerHTML = `<td colspan="5">${escapeHtml(broker.last_error)}</td>`;
+      tbody.appendChild(errRow);
+    }
+  });
+
+  tbody.querySelectorAll(".broker-reconnect").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      await fetch(`${API_BASE}api/brokers/${btn.dataset.id}/reconnect`, { method: "POST" });
+      await loadBrokers();
+      pollBrokersBriefly();
+    });
+  });
+
+  tbody.querySelectorAll(".broker-edit").forEach((btn) => {
+    btn.addEventListener("click", () => startEditBroker(btn.dataset.id));
+  });
+
+  tbody.querySelectorAll(".broker-delete").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const broker = brokers.find((b) => b.id === btn.dataset.id);
+      const label = broker ? broker.label : "este broker";
+      if (!window.confirm(`¿Borrar ${label}? Las entidades que dependen de él dejarán de actualizarse.`)) {
+        return;
+      }
+      await fetch(`${API_BASE}api/brokers/${btn.dataset.id}`, { method: "DELETE" });
+      if (editingBrokerId === btn.dataset.id) cancelEditBroker();
+      if (selectedBrokerId === btn.dataset.id) selectedBrokerId = null;
+      loadBrokers();
+    });
+  });
+}
+
+function startEditBroker(brokerId) {
+  const broker = brokers.find((b) => b.id === brokerId);
+  if (!broker) return;
+
+  editingBrokerId = brokerId;
+  $("#conn-name").value = broker.name || "";
+  $("#conn-host").value = broker.host;
+  $("#conn-port").value = broker.port;
+  $("#conn-username").value = broker.username || "";
+  // The API never returns stored passwords, so a blank field means "keep".
+  $("#conn-password").value = "";
+  $("#conn-password").placeholder = "(sin cambios)";
+  $("#btn-add-broker").textContent = "Guardar cambios";
+  $("#btn-cancel-edit").classList.remove("hidden");
+  $("#conn-error").textContent = "";
+  renderBrokers();
+}
+
+function cancelEditBroker() {
+  editingBrokerId = null;
+  $("#connection-form").reset();
+  $("#conn-port").value = 1883;
+  $("#conn-password").placeholder = "";
+  $("#btn-add-broker").textContent = "Agregar a brokers";
+  $("#btn-cancel-edit").classList.add("hidden");
+  $("#conn-error").textContent = "";
+  renderBrokers();
 }
 
 async function submitConnection(event) {
   event.preventDefault();
+
+  const password = $("#conn-password").value;
   const body = {
+    name: $("#conn-name").value.trim() || null,
     host: $("#conn-host").value.trim(),
     port: parseInt($("#conn-port").value, 10),
     username: $("#conn-username").value.trim() || null,
-    password: $("#conn-password").value || null,
+    password: password || null,
   };
-  const res = await fetch(`${API_BASE}api/connect`, {
-    method: "POST",
+
+  // Editing with an untouched password field keeps the stored one.
+  if (editingBrokerId && !password) {
+    const existing = brokers.find((b) => b.id === editingBrokerId);
+    if (existing) delete body.password;
+  }
+
+  const url = editingBrokerId
+    ? `${API_BASE}api/brokers/${editingBrokerId}`
+    : `${API_BASE}api/brokers`;
+  const res = await fetch(url, {
+    method: editingBrokerId ? "PUT" : "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
 
   if (!res.ok) {
-    applyStatus("error", `HTTP ${res.status} al conectar`);
+    let detail = `Error HTTP ${res.status}`;
+    try {
+      const data = await res.json();
+      if (data && data.detail) detail = data.detail;
+    } catch (err) {
+      void err;
+    }
+    $("#conn-error").textContent = detail;
     return;
   }
 
-  // connect_async returns before the broker handshake finishes, so poll a few
-  // times to pick up the transition to "connected" without waiting for the
-  // regular 5s refresh.
-  await loadStatus();
-  pollStatusBriefly();
+  cancelEditBroker();
+  await loadBrokers();
+  pollBrokersBriefly();
 }
 
-function pollStatusBriefly(attempts = 6) {
+// connect_async returns before the handshake finishes, so poll briefly instead
+// of waiting for the regular refresh to show the green state.
+function pollBrokersBriefly(attempts = 6) {
   if (attempts <= 0) return;
   setTimeout(async () => {
-    await loadStatus();
-    if ($("#conn-status").textContent !== STATUS_LABELS.connected) {
-      pollStatusBriefly(attempts - 1);
+    await loadBrokers();
+    if (brokers.some((b) => b.status === "connecting" || b.status === "disconnected")) {
+      pollBrokersBriefly(attempts - 1);
     }
   }, 500);
 }
 
-function init() {
+function syncBrokerSelect() {
+  const select = $("#tree-broker");
+  if (!select) return;
+
+  const previous = selectedBrokerId;
+  select.innerHTML = "";
+
+  if (brokers.length === 0) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "(sin brokers)";
+    select.appendChild(opt);
+    selectedBrokerId = null;
+    return;
+  }
+
+  brokers.forEach((broker) => {
+    const opt = document.createElement("option");
+    opt.value = broker.id;
+    opt.textContent = `${broker.label} (${STATUS_LABELS[broker.status] || broker.status})`;
+    select.appendChild(opt);
+  });
+
+  const stillExists = brokers.some((b) => b.id === previous);
+  selectedBrokerId = stillExists ? previous : brokers[0].id;
+  select.value = selectedBrokerId;
+}
+
+async function init() {
   initTabs();
   populateUnitSelect();
+  populatePrecisionSelect();
+
+  // Brokers first: the tree needs a selected broker before it can load.
+  await loadBrokers();
   loadTree();
-  loadStatus();
   setInterval(loadTree, 5000);
-  setInterval(loadStatus, 5000);
+  setInterval(loadBrokers, 5000);
 
   $("#connection-form").addEventListener("submit", submitConnection);
-  $("#btn-disconnect").addEventListener("click", async () => {
-    await fetch(`${API_BASE}api/disconnect`, { method: "POST" });
-    loadStatus();
+  $("#btn-cancel-edit").addEventListener("click", cancelEditBroker);
+
+  $("#tree-broker").addEventListener("change", (event) => {
+    selectedBrokerId = event.target.value || null;
+    // Different broker means a different topic namespace; reset the view.
+    expandedPaths.clear();
+    currentTopic = null;
+    $("#topic-title").textContent = "";
+    $("#topic-json").innerHTML = "";
+    loadTree();
   });
+
+  $("#cfg-precision").addEventListener("change", updatePrecisionExample);
 
   $("#tree-search").addEventListener("input", (event) => {
     treeFilter = event.target.value.trim();

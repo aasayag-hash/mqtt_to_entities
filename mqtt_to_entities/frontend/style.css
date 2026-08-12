@@ -57,6 +57,98 @@ main {
   gap: 20px;
 }
 
+.conexion-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.broker-form-panel {
+  background: white;
+  border-radius: 6px;
+  padding: 16px;
+  flex: 0 0 320px;
+}
+
+.broker-list-panel {
+  background: white;
+  border-radius: 6px;
+  padding: 16px;
+  flex: 1;
+  min-width: 340px;
+  overflow-x: auto;
+}
+
+.broker-form-panel h2,
+.broker-list-panel h2 {
+  margin-top: 0;
+  font-size: 1.1rem;
+}
+
+.broker-label {
+  font-weight: 600;
+}
+
+.broker-endpoint {
+  font-family: Consolas, Menlo, monospace;
+  font-size: 0.75rem;
+  color: #666;
+}
+
+.broker-actions {
+  white-space: nowrap;
+}
+
+.broker-actions button {
+  padding: 4px 9px;
+  font-size: 0.78rem;
+}
+
+button.broker-edit,
+button.broker-reconnect {
+  background: white;
+  color: #1c1e21;
+}
+
+button.broker-delete {
+  background: #c62828;
+  border-color: #c62828;
+}
+
+tr.row-editing td {
+  background: #fff8e1;
+}
+
+.broker-missing {
+  color: #c62828;
+  font-size: 0.8rem;
+}
+
+.broker-any {
+  color: #8a5a00;
+  font-size: 0.8rem;
+}
+
+.tree-broker-label {
+  display: block;
+  font-size: 0.8rem;
+  color: #555;
+  margin-bottom: 8px;
+}
+
+.tree-broker-label select {
+  display: block;
+  width: 100%;
+  margin-top: 3px;
+  padding: 5px;
+}
+
+.status-pill.waiting {
+  background: #fff4e5;
+  color: #8a5a00;
+}
+
 .tree-panel, .payload-panel {
   background: white;
   border-radius: 6px;
@@ -273,15 +365,13 @@ button {
   color: white;
 }
 
-button#btn-disconnect, button#mapping-cancel {
+button#btn-cancel-edit, button#mapping-cancel {
   background: white;
   color: #1c1e21;
 }
 
-button#btn-connect.connected {
-  background: #2e7d32;
-  border-color: #2e7d32;
-  color: white;
+button#btn-cancel-edit.hidden {
+  display: none;
 }
 
 button:disabled {

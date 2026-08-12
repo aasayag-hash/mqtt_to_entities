@@ -21,6 +21,9 @@
       <div class="explorar-layout">
         <div class="tree-panel">
           <h2>Topics</h2>
+          <label class="tree-broker-label">Broker
+            <select id="tree-broker"></select>
+          </label>
           <div class="tree-toolbar">
             <input type="search" id="tree-search" placeholder="Buscar topic o valor..." autocomplete="off" />
             <button type="button" id="tree-collapse-all" title="Plegar todo">&minus;</button>
@@ -44,6 +47,7 @@
       <table id="mappings-table">
         <thead>
           <tr>
+            <th>Broker</th>
             <th>Topic</th>
             <th>Path</th>
             <th>Entity ID</th>
@@ -58,19 +62,39 @@
     </section>
 
     <section id="tab-conexion" class="tab-panel">
-      <h2>Conexi&oacute;n al broker MQTT</h2>
-      <form id="connection-form">
-        <label>Host <input type="text" id="conn-host" required /></label>
-        <label>Puerto <input type="number" id="conn-port" value="1883" required /></label>
-        <label>Usuario <input type="text" id="conn-username" /></label>
-        <label>Contrase&ntilde;a <input type="password" id="conn-password" /></label>
-        <div class="actions">
-          <button type="submit" id="btn-connect">Conectar</button>
-          <button type="button" id="btn-disconnect">Desconectar</button>
+      <div class="conexion-layout">
+        <div class="broker-form-panel">
+          <h2>Conexi&oacute;n al broker MQTT</h2>
+          <form id="connection-form">
+            <label>Nombre (opcional) <input type="text" id="conn-name" placeholder="Victron sala" /></label>
+            <label>Host <input type="text" id="conn-host" required /></label>
+            <label>Puerto <input type="number" id="conn-port" value="1883" required /></label>
+            <label>Usuario <input type="text" id="conn-username" /></label>
+            <label>Contrase&ntilde;a <input type="password" id="conn-password" /></label>
+            <div class="actions">
+              <button type="submit" id="btn-add-broker">Agregar a brokers</button>
+              <button type="button" id="btn-cancel-edit" class="hidden">Cancelar edici&oacute;n</button>
+            </div>
+          </form>
+          <p id="conn-error" class="error"></p>
         </div>
-      </form>
-      <p>Estado: <span id="conn-status" class="status-pill">desconocido</span></p>
-      <p id="conn-error" class="error"></p>
+
+        <div class="broker-list-panel">
+          <h2>Brokers configurados</h2>
+          <table id="brokers-table">
+            <thead>
+              <tr>
+                <th>Broker</th>
+                <th>Estado</th>
+                <th>Topics</th>
+                <th>Mensajes</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
     </section>
   </main>
 
@@ -104,6 +128,13 @@
           </label>
           <label id="cfg-unit-custom-label" class="hidden">Unidad personalizada
             <input type="text" id="cfg-unit-custom" placeholder="ej. kVArh" />
+          </label>
+        </div>
+
+        <div id="domain-config-precision" class="domain-config">
+          <label>Redondeo
+            <select id="cfg-precision"></select>
+            <small class="field-hint">Ej. <code>57.560001373291016</code> &rarr; <span id="precision-example">sin cambios</span></small>
           </label>
         </div>
 
