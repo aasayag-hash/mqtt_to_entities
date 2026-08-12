@@ -37,6 +37,10 @@
 
     <section id="tab-entidades" class="tab-panel">
       <h2>Entidades mapeadas</h2>
+      <div class="entities-toolbar">
+        <input type="search" id="mappings-search" placeholder="Buscar por topic, entity ID, path o dominio..." autocomplete="off" />
+        <span id="mappings-count" class="mappings-count"></span>
+      </div>
       <table id="mappings-table">
         <thead>
           <tr>
@@ -45,6 +49,7 @@
             <th>Entity ID</th>
             <th>Dominio</th>
             <th>&Uacute;ltimo valor</th>
+            <th>Estado</th>
             <th>Acciones</th>
           </tr>
         </thead>
@@ -77,7 +82,11 @@
         <label>Campo
           <select id="mapping-field-path"></select>
         </label>
-        <label>Entity ID <input type="text" id="mapping-entity-id" placeholder="sensor.mi_sensor" required /></label>
+        <label>Entity ID
+          <input type="text" id="mapping-entity-id" placeholder="sensor.mi_sensor" required />
+          <small class="field-hint">Formato <code>dominio.nombre</code> en min&uacute;sculas, sin espacios.</small>
+        </label>
+        <p id="mapping-error" class="error hidden"></p>
         <label>Dominio
           <select id="mapping-domain">
             <option value="sensor">sensor</option>
@@ -90,7 +99,12 @@
         </label>
 
         <div id="domain-config-sensor" class="domain-config">
-          <label>Unidad de medida <input type="text" id="cfg-unit" placeholder="&deg;C, %, kWh..." /></label>
+          <label>Unidad de medida
+            <select id="cfg-unit"></select>
+          </label>
+          <label id="cfg-unit-custom-label" class="hidden">Unidad personalizada
+            <input type="text" id="cfg-unit-custom" placeholder="ej. kVArh" />
+          </label>
         </div>
 
         <div id="domain-config-onoff" class="domain-config hidden">

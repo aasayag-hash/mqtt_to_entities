@@ -47,10 +47,14 @@ def _apply_mapping(mapping: dict[str, Any], state: TopicState) -> None:
         )
     except domain_transform.TransformError as exc:
         logger.info("Skipping mapping %s: %s", mapping["id"], exc)
+        mappings_store.set_last_error(mapping["id"], str(exc))
         return
 
-    if ha_api.set_state(mapping["entity_id"], value, attributes):
+    ok, error = ha_api.set_state(mapping["entity_id"], value, attributes)
+    if ok:
         mappings_store.set_last_value(mapping["id"], value)
+    else:
+        mappings_store.set_last_error(mapping["id"], error)
 
 
 mqtt_manager = MqttManager(on_message=_on_mqtt_message)
@@ -65,7 +69,9 @@ def _restore_last_values() -> None:
         last_value = mapping.get("last_value")
         if last_value is None:
             continue
-        ha_api.set_state(mapping["entity_id"], last_value)
+        ok, error = ha_api.set_state(mapping["entity_id"], last_value)
+        if not ok:
+            mappings_store.set_last_error(mapping["id"], error)
 
 
 class BrokerConfigIn(BaseModel):
@@ -155,7 +161,19 @@ def list_mappings() -> list[dict[str, Any]]:
 def create_mapping(mapping: MappingIn) -> dict[str, Any]:
     if mapping.domain not in VALID_DOMAINS:
         raise HTTPException(status_code=400, detail=f"Invalid domain: {mapping.domain}")
-    return mappings_store.create_mapping(mapping.model_dump())
+    error = ha_api.validate_entity_id(mapping.entity_id, mapping.domain)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+
+    created = mappings_store.create_mapping(mapping.model_dump())
+
+    # Push immediately from the latest retained payload so the entity shows a
+    # value right away instead of waiting for the next MQTT message.
+    state = mqtt_manager.get_topic(mapping.topic)
+    if state is not None:
+        _apply_mapping(created, state)
+        created = mappings_store.get_mapping(created["id"]) or created
+    return created
 
 
 @app.put("/api/mappings/{mapping_id}")
@@ -163,9 +181,25 @@ def update_mapping(mapping_id: str, updates: MappingUpdate) -> dict[str, Any]:
     payload = {k: v for k, v in updates.model_dump().items() if v is not None}
     if "domain" in payload and payload["domain"] not in VALID_DOMAINS:
         raise HTTPException(status_code=400, detail=f"Invalid domain: {payload['domain']}")
+
+    existing = mappings_store.get_mapping(mapping_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Mapping not found")
+
+    entity_id = payload.get("entity_id", existing["entity_id"])
+    domain = payload.get("domain", existing["domain"])
+    error = ha_api.validate_entity_id(entity_id, domain)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+
     result = mappings_store.update_mapping(mapping_id, payload)
     if result is None:
         raise HTTPException(status_code=404, detail="Mapping not found")
+
+    state = mqtt_manager.get_topic(result["topic"])
+    if state is not None:
+        _apply_mapping(result, state)
+        result = mappings_store.get_mapping(mapping_id) or result
     return result
 
 

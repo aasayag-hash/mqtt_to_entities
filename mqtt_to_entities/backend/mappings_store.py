@@ -67,4 +67,10 @@ def delete_mapping(mapping_id: str) -> bool:
 
 
 def set_last_value(mapping_id: str, value: Any) -> None:
-    update_mapping(mapping_id, {"last_value": value})
+    # A successful push clears any previous error so the UI stops showing a
+    # stale failure once the mapping starts working.
+    update_mapping(mapping_id, {"last_value": value, "last_error": None})
+
+
+def set_last_error(mapping_id: str, error: str | None) -> None:
+    update_mapping(mapping_id, {"last_error": error})

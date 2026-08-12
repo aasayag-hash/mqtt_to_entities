@@ -184,37 +184,190 @@ function renderPayload(payload, fieldPaths) {
   const container = $("#topic-json");
   container.innerHTML = "";
 
+  // Scalar payload: the whole value is the only thing mappable.
   if (typeof payload !== "object" || payload === null) {
-    const span = document.createElement("span");
-    span.className = "field-value";
-    span.textContent = JSON.stringify(payload);
-    span.addEventListener("click", () => openMappingModal("", fieldPaths));
-    container.appendChild(span);
+    container.appendChild(buildFieldRow("", payload, "(valor completo)"));
     return;
   }
 
-  const pathSet = new Set(fieldPaths || []);
-  const pre = document.createElement("pre");
-  pre.textContent = "";
-  container.appendChild(pre);
+  const raw = document.createElement("pre");
+  raw.className = "payload-raw";
+  raw.textContent = JSON.stringify(payload, null, 2);
+  container.appendChild(raw);
+
+  const heading = document.createElement("div");
+  heading.className = "fields-heading";
+  heading.textContent = "Campos disponibles";
+  container.appendChild(heading);
 
   const list = document.createElement("div");
+  list.className = "fields-list";
   (fieldPaths || []).forEach((path) => {
-    const row = document.createElement("div");
-    const link = document.createElement("span");
-    link.className = "field-value";
-    link.textContent = path;
-    link.addEventListener("click", () => openMappingModal(path));
-    row.appendChild(link);
-    list.appendChild(row);
+    list.appendChild(buildFieldRow(path, resolveLocalPath(payload, path), path));
   });
-  container.appendChild(document.createTextNode(JSON.stringify(payload, null, 2)));
-  container.appendChild(document.createElement("hr"));
   container.appendChild(list);
-  void pathSet;
+}
+
+// Mirrors backend/json_paths.resolve_path so each field can show its current
+// value, including the "[field=value]" array syntax the backend emits.
+function resolveLocalPath(payload, path) {
+  if (!path) return payload;
+
+  let current = payload;
+  for (const segment of splitLocalPath(path)) {
+    if (current === null || current === undefined) return undefined;
+
+    const match = /^([^.[\]]*)(?:\[([^=\]]+)\])?(?:\[([^=\]]+)=([^\]]+)\])?$/.exec(segment);
+    if (!match) return undefined;
+    const [, key, index, field, fieldMatch] = match;
+
+    if (key) {
+      if (typeof current !== "object" || !(key in current)) return undefined;
+      current = current[key];
+    }
+    if (index !== undefined) {
+      if (!Array.isArray(current)) return undefined;
+      current = current[parseInt(index, 10)];
+    }
+    if (field !== undefined) {
+      if (!Array.isArray(current)) return undefined;
+      current = current.find((item) => item && String(item[field]) === fieldMatch);
+    }
+  }
+  return current;
+}
+
+function splitLocalPath(path) {
+  const tokens = [];
+  let buf = "";
+  let depth = 0;
+  for (const ch of path) {
+    if (ch === "." && depth === 0) {
+      tokens.push(buf);
+      buf = "";
+      continue;
+    }
+    if (ch === "[") depth += 1;
+    else if (ch === "]") depth -= 1;
+    buf += ch;
+  }
+  if (buf) tokens.push(buf);
+  return tokens;
+}
+
+function buildFieldRow(path, value, label) {
+  const row = document.createElement("div");
+  row.className = "field-row";
+
+  const name = document.createElement("span");
+  name.className = "field-path";
+  name.textContent = label;
+  row.appendChild(name);
+
+  const val = document.createElement("span");
+  val.className = "field-current-value";
+  val.textContent = value === undefined ? "" : JSON.stringify(value);
+  row.appendChild(val);
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "create-entity-btn";
+  btn.textContent = "+ Crear entidad";
+  btn.addEventListener("click", () => openMappingModal(path));
+  row.appendChild(btn);
+
+  return row;
 }
 
 let modalOptions = [];
+
+// Home Assistant's standard units, grouped the way its device classes are.
+// "Otra…" keeps the field open for units HA has no constant for (kVArh and
+// friends show up on Victron/vebus brokers).
+const UNIT_GROUPS = [
+  ["Temperatura", ["°C", "°F", "K"]],
+  ["Potencia", ["W", "kW", "MW", "VA", "kVA", "var", "kvar"]],
+  ["Energía", ["Wh", "kWh", "MWh", "GJ", "cal", "kcal"]],
+  ["Corriente / Tensión", ["A", "mA", "V", "mV", "kV"]],
+  ["Frecuencia", ["Hz", "kHz", "MHz", "GHz", "rpm"]],
+  ["Porcentaje", ["%"]],
+  ["Presión", ["Pa", "hPa", "kPa", "bar", "mbar", "cbar", "mmHg", "inHg", "psi"]],
+  ["Caudal", ["m³/h", "L/min", "ft³/min", "gal/min"]],
+  ["Volumen", ["L", "mL", "m³", "ft³", "gal", "fl. oz."]],
+  ["Masa", ["g", "kg", "mg", "µg", "oz", "lb"]],
+  ["Distancia", ["mm", "cm", "m", "km", "in", "ft", "yd", "mi"]],
+  ["Velocidad", ["m/s", "km/h", "mph", "kn", "ft/s", "in/d", "mm/d"]],
+  ["Datos", ["bit", "B", "kB", "MB", "GB", "TB", "PB", "KiB", "MiB", "GiB", "TiB"]],
+  ["Velocidad de datos", ["bit/s", "kbit/s", "Mbit/s", "B/s", "kB/s", "MB/s", "GB/s"]],
+  // "m" (month) collides with "m" (meter) under Distancia, so it carries an
+  // explicit label; the value sent to HA is still plain "m". Re-opening such a
+  // mapping highlights the Distancia entry, which is harmless since both send
+  // the same string -- HA itself overloads "m" the same way.
+  ["Tiempo", ["ms", "s", "min", "h", "d", "w", { value: "m", label: "m (meses)" }, "y"]],
+  ["Luz / Radiación", ["lx", "lm", "W/m²", "UV index", "Bq/m³", "µSv/h"]],
+  ["Calidad de aire", ["µg/m³", "mg/m³", "ppm", "ppb", "p/m³"]],
+  ["Señal", ["dB", "dBm", "dBA"]],
+  ["Otros", ["pH", "S/cm", "µS/cm", "Ω", "kΩ", "MΩ", "F", "µF", "nF", "pF"]],
+];
+
+const UNIT_CUSTOM_VALUE = "__custom__";
+
+function populateUnitSelect() {
+  const select = $("#cfg-unit");
+  select.innerHTML = "";
+
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = "(sin unidad)";
+  select.appendChild(none);
+
+  UNIT_GROUPS.forEach(([groupLabel, units]) => {
+    const group = document.createElement("optgroup");
+    group.label = groupLabel;
+    units.forEach((unit) => {
+      const opt = document.createElement("option");
+      opt.value = typeof unit === "string" ? unit : unit.value;
+      opt.textContent = typeof unit === "string" ? unit : unit.label;
+      group.appendChild(opt);
+    });
+    select.appendChild(group);
+  });
+
+  const custom = document.createElement("option");
+  custom.value = UNIT_CUSTOM_VALUE;
+  custom.textContent = "Otra…";
+  select.appendChild(custom);
+}
+
+function updateUnitCustomVisibility() {
+  const isCustom = $("#cfg-unit").value === UNIT_CUSTOM_VALUE;
+  $("#cfg-unit-custom-label").classList.toggle("hidden", !isCustom);
+  if (!isCustom) $("#cfg-unit-custom").value = "";
+}
+
+function getSelectedUnit() {
+  const value = $("#cfg-unit").value;
+  if (value === UNIT_CUSTOM_VALUE) return $("#cfg-unit-custom").value.trim();
+  return value;
+}
+
+// Selects a unit that may not be one of the presets: falls back to the
+// "Otra…" branch so editing an existing mapping never loses its unit.
+function setSelectedUnit(unit) {
+  const select = $("#cfg-unit");
+  const value = unit || "";
+  const known = Array.from(select.options).some((opt) => opt.value === value);
+
+  if (value && !known) {
+    select.value = UNIT_CUSTOM_VALUE;
+    updateUnitCustomVisibility();
+    $("#cfg-unit-custom").value = value;
+    return;
+  }
+
+  select.value = value;
+  updateUnitCustomVisibility();
+}
 
 function openMappingModal(fieldPath) {
   $("#mapping-topic").textContent = currentTopic;
@@ -225,14 +378,46 @@ function openMappingModal(fieldPath) {
   opt.textContent = fieldPath || "(valor raíz)";
   select.appendChild(opt);
   select.value = fieldPath;
-  $("#mapping-entity-id").value = "";
   $("#mapping-domain").value = "sensor";
+  $("#mapping-entity-id").value = suggestEntityId(currentTopic, fieldPath, "sensor");
+  setSelectedUnit("");
   updateDomainConfigVisibility();
+  showMappingError("");
   $("#mapping-modal").classList.remove("hidden");
 }
 
 function closeMappingModal() {
   $("#mapping-modal").classList.add("hidden");
+  showMappingError("");
+}
+
+function showMappingError(message) {
+  const el = $("#mapping-error");
+  el.textContent = message || "";
+  el.classList.toggle("hidden", !message);
+}
+
+// Builds a valid "<domain>.<object_id>" from the topic tail plus field path.
+// HA rejects spaces, capitals and missing domains, which is the most common
+// way a hand-typed entity ID silently fails to receive any value.
+function suggestEntityId(topic, fieldPath, domain) {
+  if (!topic) return "";
+
+  const segments = topic.split("/").filter(Boolean);
+  // Skip a trailing generic "value"-ish field so the name comes from the topic.
+  const meaningfulField = fieldPath && !/^value$/i.test(fieldPath) ? fieldPath : "";
+  const parts = segments.slice(-3).concat(meaningfulField ? [meaningfulField] : []);
+
+  const objectId = parts
+    .join("_")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_{2,}/g, "_");
+
+  return objectId ? `${domain}.${objectId}` : "";
 }
 
 function updateDomainConfigVisibility() {
@@ -245,7 +430,7 @@ function updateDomainConfigVisibility() {
 
 function buildDomainConfig(domain) {
   if (domain === "sensor") {
-    const unit = $("#cfg-unit").value.trim();
+    const unit = getSelectedUnit();
     return unit ? { unit_of_measurement: unit } : {};
   }
   if (domain === "binary_sensor" || domain === "switch") {
@@ -287,34 +472,94 @@ async function submitMapping(event) {
   const editingId = $("#mapping-form").dataset.editingId;
   const url = editingId ? `${API_BASE}api/mappings/${editingId}` : `${API_BASE}api/mappings`;
   const method = editingId ? "PUT" : "POST";
-  await fetch(url, {
+  const res = await fetch(url, {
     method,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+
+  // Keep the modal open on validation errors so the entity ID can be fixed
+  // without retyping everything else.
+  if (!res.ok) {
+    let detail = `Error HTTP ${res.status}`;
+    try {
+      const data = await res.json();
+      if (data && data.detail) detail = data.detail;
+    } catch (err) {
+      void err;
+    }
+    showMappingError(detail);
+    return;
+  }
+
   delete $("#mapping-form").dataset.editingId;
   closeMappingModal();
   loadMappings();
 }
 
+let allMappings = [];
+let mappingsFilter = "";
+
 async function loadMappings() {
   const res = await fetch(`${API_BASE}api/mappings`);
-  const mappings = await res.json();
+  allMappings = await res.json();
+  renderMappings();
+}
+
+function renderMappings() {
+  const mappings = filterMappings(allMappings, mappingsFilter);
   const tbody = document.querySelector("#mappings-table tbody");
   tbody.innerHTML = "";
+
+  const count = $("#mappings-count");
+  if (count) {
+    count.textContent = mappingsFilter
+      ? `${mappings.length} de ${allMappings.length}`
+      : `${allMappings.length} entidad${allMappings.length === 1 ? "" : "es"}`;
+  }
+
+  if (mappings.length === 0) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 7;
+    td.className = "table-empty";
+    td.textContent = allMappings.length
+      ? "Sin coincidencias"
+      : "Todavía no hay entidades. Creá una desde la pestaña Explorar.";
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return;
+  }
+
   mappings.forEach((mapping) => {
+    const hasValue = mapping.last_value !== null && mapping.last_value !== undefined;
+    const statusHtml = mapping.last_error
+      ? `<span class="cell-status error" title="${escapeHtml(mapping.last_error)}">error</span>`
+      : hasValue
+      ? '<span class="cell-status ok">ok</span>'
+      : '<span class="cell-status waiting">esperando dato</span>';
+
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${escapeHtml(mapping.topic)}</td>
+      <td class="cell-topic">${escapeHtml(mapping.topic)}</td>
       <td>${escapeHtml(mapping.field_path)}</td>
       <td>${escapeHtml(mapping.entity_id)}</td>
       <td>${escapeHtml(mapping.domain)}</td>
-      <td>${escapeHtml(String(mapping.last_value))}</td>
+      <td>${hasValue ? escapeHtml(String(mapping.last_value)) : "&mdash;"}</td>
+      <td>${statusHtml}</td>
       <td>
         <button class="edit-btn" data-id="${mapping.id}">Editar</button>
         <button class="delete-btn" data-id="${mapping.id}">Borrar</button>
       </td>
     `;
+    if (mapping.last_error) {
+      const errRow = document.createElement("tr");
+      errRow.className = "error-detail-row";
+      errRow.innerHTML = `<td colspan="7">${escapeHtml(mapping.last_error)}</td>`;
+      tbody.appendChild(tr);
+      tbody.appendChild(errRow);
+      return;
+    }
     tbody.appendChild(tr);
   });
 
@@ -327,7 +572,7 @@ async function loadMappings() {
 
   tbody.querySelectorAll(".edit-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const mapping = mappings.find((m) => m.id === btn.dataset.id);
+      const mapping = allMappings.find((m) => m.id === btn.dataset.id);
       if (!mapping) return;
       currentTopic = mapping.topic;
       openMappingModal(mapping.field_path);
@@ -340,9 +585,20 @@ async function loadMappings() {
   });
 }
 
+function filterMappings(mappings, filter) {
+  if (!filter) return mappings;
+  const needle = filter.toLowerCase();
+  return mappings.filter((m) =>
+    [m.topic, m.field_path, m.entity_id, m.domain, String(m.last_value ?? "")]
+      .join(" ")
+      .toLowerCase()
+      .includes(needle)
+  );
+}
+
 function fillDomainConfig(domain, config) {
   if (domain === "sensor") {
-    $("#cfg-unit").value = config.unit_of_measurement || "";
+    setSelectedUnit(config.unit_of_measurement);
   } else if (domain === "binary_sensor" || domain === "switch") {
     $("#cfg-on-values").value = (config.on_values || []).join(", ");
     $("#cfg-off-values").value = (config.off_values || []).join(", ");
@@ -427,6 +683,7 @@ function pollStatusBriefly(attempts = 6) {
 
 function init() {
   initTabs();
+  populateUnitSelect();
   loadTree();
   loadStatus();
   setInterval(loadTree, 5000);
@@ -449,7 +706,23 @@ function init() {
   });
   $("#mapping-form").addEventListener("submit", submitMapping);
   $("#mapping-cancel").addEventListener("click", closeMappingModal);
-  $("#mapping-domain").addEventListener("change", updateDomainConfigVisibility);
+  $("#mapping-domain").addEventListener("change", () => {
+    updateDomainConfigVisibility();
+    // Re-suggest only while creating; an existing mapping keeps its entity ID.
+    if (!$("#mapping-form").dataset.editingId) {
+      $("#mapping-entity-id").value = suggestEntityId(
+        currentTopic,
+        $("#mapping-field-path").value,
+        $("#mapping-domain").value
+      );
+    }
+  });
+  $("#cfg-unit").addEventListener("change", updateUnitCustomVisibility);
+
+  $("#mappings-search").addEventListener("input", (event) => {
+    mappingsFilter = event.target.value.trim();
+    renderMappings();
+  });
 }
 
 document.addEventListener("DOMContentLoaded", init);
