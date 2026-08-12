@@ -48,11 +48,38 @@ def _on_mqtt_message(broker_id: str, topic: str, state: TopicState) -> None:
 
 
 def _apply_mapping(mapping: dict[str, Any], state: TopicState) -> None:
-    if not isinstance(state.payload, (dict, list)):
-        return
+    field_path = mapping.get("field_path") or ""
 
-    raw_value = resolve_path(state.payload, mapping["field_path"])
+    if isinstance(state.payload, (dict, list)):
+        raw_value = resolve_path(state.payload, field_path)
+        if raw_value is None:
+            # Distinguish "the path isn't there" from "the value really is null",
+            # instead of silently doing nothing in both cases.
+            available = flatten_paths(state.payload)
+            if field_path and field_path not in available:
+                hint = ", ".join(available[:5]) or "ninguno"
+                mappings_store.set_last_error(
+                    mapping["id"],
+                    f"El campo '{field_path}' no está en el payload. Campos disponibles: {hint}",
+                )
+                return
+            raw_value = None
+    else:
+        # Scalar payload (Victron publishes plain values on some topics). Only a
+        # root mapping can consume it; a field path has nothing to resolve.
+        if field_path:
+            mappings_store.set_last_error(
+                mapping["id"],
+                f"El payload de este topic no es JSON ({state.raw[:40]!r}), así que no "
+                f"tiene el campo '{field_path}'. Mapeá el valor completo en su lugar.",
+            )
+            return
+        raw_value = state.payload
+
     if raw_value is None:
+        mappings_store.set_last_error(
+            mapping["id"], "El valor recibido es null"
+        )
         return
 
     try:

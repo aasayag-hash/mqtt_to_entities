@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.09
+
+- **Topics que no publican JSON**: antes, si un topic enviaba un valor suelto (por ejemplo `52.3` en lugar de `{"value":52.3}`), la entidad quedaba sin datos para siempre y sin ninguna explicación. Ahora se puede mapear el valor completo del topic y funciona.
+- **Mensajes de error claros al mapear**: si el campo elegido no está en el payload, la entidad indica cuáles son los campos disponibles. Si el valor recibido es nulo, también lo informa.
+- **Memoria acotada**: la lista de topics que el add-on mantiene en memoria ahora tiene un límite (20.000 por broker) y descarta los menos usados, para que un broker con muchísimos topics distintos no haga crecer la memoria sin control. Los payloads muy grandes se recortan para la vista previa. Las entidades ya creadas no se ven afectadas; la tabla de brokers avisa si se descartó algo.
+- **Corregido**: al hacer clic rápido en varios topics del árbol, o al cambiar de broker mientras cargaba, podía quedar en pantalla el payload de un topic mientras la aplicación creía estar en otro, y la entidad se creaba sobre el topic equivocado.
+- Si un topic todavía no tiene datos, el panel lo indica en lugar de quedar en blanco.
+
 ## 1.08
 
 - **Entidades en desconocido cuando un topic deja de publicar**: además del caso en que se cae el broker, ahora cada entidad pasa a `unknown` si su topic deja de enviar datos, aunque el broker siga conectado (por ejemplo, un equipo que se desconecta del bus).

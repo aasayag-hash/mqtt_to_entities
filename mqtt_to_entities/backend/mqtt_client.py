@@ -5,6 +5,7 @@ import logging
 import threading
 import time
 import uuid
+from collections import OrderedDict
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable
 
@@ -16,6 +17,14 @@ MAX_BACKOFF_SECONDS = 30
 PREVIEW_MAX_CHARS = 80
 # How long a reconnect attempt waits for the broker's CONNACK before retrying.
 CONNECT_WAIT_SECONDS = 5.0
+
+# The add-on subscribes to "#", so the topic cache is bounded: brokers with
+# UUID/timestamp topics would otherwise grow it until the container is OOM-killed.
+# On overflow the least recently seen topics are dropped.
+MAX_CACHED_TOPICS = 20000
+# Payloads are kept for the tree preview and the field list; oversized ones are
+# truncated so a single huge message can't blow up memory.
+MAX_CACHED_RAW_CHARS = 8192
 
 
 @dataclass
@@ -52,7 +61,9 @@ class BrokerConnection:
         self.config = config
         self._on_status_change_cb = on_status_change
         self._client: mqtt.Client | None = None
-        self._topics: dict[str, TopicState] = {}
+        # Ordered by last activity so overflow can evict the stalest topics.
+        self._topics: OrderedDict[str, TopicState] = OrderedDict()
+        self._evicted_topics = 0
         self._lock = threading.Lock()
         # Guards connect/disconnect/retry transitions, separate from the topic
         # cache lock so a message burst never blocks a reconnect.
@@ -102,6 +113,7 @@ class BrokerConnection:
             "topic_count": topic_count,
             "message_total": message_total,
             "connected_at": self._connected_at,
+            "evicted_topics": self._evicted_topics,
         }
 
     def connect(self) -> None:
@@ -248,14 +260,31 @@ class BrokerConnection:
         except (json.JSONDecodeError, ValueError):
             payload = raw
 
+        # Keep the parsed payload (the UI maps fields off it) but cap the raw copy
+        # kept only for the preview.
+        cached_raw = raw if len(raw) <= MAX_CACHED_RAW_CHARS else raw[:MAX_CACHED_RAW_CHARS]
+
         with self._lock:
             previous = self._topics.get(msg.topic)
             state = TopicState(
                 payload=payload,
-                raw=raw,
+                raw=cached_raw,
                 message_count=(previous.message_count + 1) if previous else 1,
             )
             self._topics[msg.topic] = state
+            self._topics.move_to_end(msg.topic)
+
+            while len(self._topics) > MAX_CACHED_TOPICS:
+                stale_topic, _ = self._topics.popitem(last=False)
+                self._evicted_topics += 1
+                if self._evicted_topics % 1000 == 1:
+                    logger.warning(
+                        "[%s] cache de topics lleno (%s); descartando los menos "
+                        "recientes, empezando por %s",
+                        self.config.label(),
+                        MAX_CACHED_TOPICS,
+                        stale_topic,
+                    )
 
         if self._on_message_cb is not None:
             try:

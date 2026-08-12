@@ -120,6 +120,18 @@ tr.row-editing td {
   background: #fff8e1;
 }
 
+.payload-error {
+  color: #8a5a00;
+  font-size: 0.85rem;
+  padding: 8px 0;
+}
+
+.broker-evicted {
+  color: #8a5a00;
+  font-size: 0.72rem;
+  cursor: help;
+}
+
 .value-unknown {
   color: #8a5a00;
   font-style: italic;

@@ -30,9 +30,19 @@ function brokerQuery(prefix = "?") {
   return selectedBrokerId ? `${prefix}broker_id=${encodeURIComponent(selectedBrokerId)}` : "";
 }
 
+// Sequence guards: a slow response must never paint over a newer one. Without
+// these, switching brokers could render the previous broker's tree, and two
+// quick topic clicks could leave the panel and currentTopic disagreeing.
+let treeRequestSeq = 0;
+let topicRequestSeq = 0;
+
 async function loadTree() {
+  const seq = ++treeRequestSeq;
+  const requestedBroker = selectedBrokerId;
   const res = await fetch(`${API_BASE}api/tree${brokerQuery()}`);
   const tree = await res.json();
+  // Stale response, or the broker changed while it was in flight.
+  if (seq !== treeRequestSeq || requestedBroker !== selectedBrokerId) return;
   renderTree(tree);
 }
 
@@ -175,10 +185,29 @@ function highlightRow(row) {
 }
 
 async function selectTopic(topic) {
-  currentTopic = topic;
+  const seq = ++topicRequestSeq;
+  const requestedBroker = selectedBrokerId;
+
   const res = await fetch(`${API_BASE}api/topics/${encodeURIComponent(topic)}${brokerQuery()}`);
-  if (!res.ok) return;
+
+  // A newer click (or a broker switch) already won; drop this response so the
+  // panel and currentTopic can't end up describing different topics.
+  if (seq !== topicRequestSeq || requestedBroker !== selectedBrokerId) return;
+
+  if (!res.ok) {
+    currentTopic = null;
+    currentPayload = null;
+    $("#topic-title").textContent = topic;
+    $("#topic-json").innerHTML =
+      '<div class="payload-error">Sin datos para este topic todavía.</div>';
+    return;
+  }
+
   const data = await res.json();
+  if (seq !== topicRequestSeq || requestedBroker !== selectedBrokerId) return;
+
+  // Assigned only once the response is known to be current.
+  currentTopic = topic;
   currentPayload = data.payload;
   $("#topic-title").textContent = topic;
   renderPayload(data.payload, data.field_paths);
@@ -465,6 +494,13 @@ function setSelectedUnit(unit) {
 }
 
 function openMappingModal(fieldPath) {
+  // Guards against creating a mapping with no topic, which the API would reject
+  // anyway after the user filled in the whole form.
+  if (!currentTopic) {
+    window.alert("Elegí un topic del árbol antes de crear una entidad.");
+    return;
+  }
+
   // Creating, not editing: clear any leftover edit target, or saving would PUT
   // over the mapping that was opened earlier instead of creating a new one.
   delete $("#mapping-form").dataset.editingId;
@@ -825,7 +861,11 @@ function renderBrokers() {
         ${broker.name ? `<div class="broker-endpoint">${escapeHtml(broker.host)}:${broker.port}</div>` : ""}
       </td>
       <td>${statusPillHtml(broker.status, broker.last_error)}</td>
-      <td>${broker.topic_count}</td>
+      <td>${broker.topic_count}${
+        broker.evicted_topics
+          ? ` <span class="broker-evicted" title="Se descartaron ${broker.evicted_topics} topics viejos del caché para acotar la memoria. No afecta a las entidades ya creadas.">(+${broker.evicted_topics} descartados)</span>`
+          : ""
+      }</td>
       <td>${broker.message_total}</td>
       <td class="broker-actions">
         <button class="broker-reconnect" data-id="${broker.id}">Reconectar</button>
