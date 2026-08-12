@@ -120,6 +120,12 @@ tr.row-editing td {
   background: #fff8e1;
 }
 
+.value-unknown {
+  color: #8a5a00;
+  font-style: italic;
+  font-size: 0.8rem;
+}
+
 .broker-missing {
   color: #c62828;
   font-size: 0.8rem;

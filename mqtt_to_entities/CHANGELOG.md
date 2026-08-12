@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.08
+
+- **Entidades en desconocido cuando un topic deja de publicar**: además del caso en que se cae el broker, ahora cada entidad pasa a `unknown` si su topic deja de enviar datos, aunque el broker siga conectado (por ejemplo, un equipo que se desconecta del bus).
+- Nuevo campo **Timeout sin datos** al crear o editar una entidad, con opciones de 1 minuto a 1 día, o **Nunca** para desactivarlo. Por defecto son **5 minutos**.
+- La entidad vuelve a mostrar su valor en cuanto llega un dato nuevo.
+- En la tabla de entidades, las que están sin datos se muestran como **desconocido** en lugar de mostrar el texto `unknown`.
+
 ## 1.07
 
 Correcciones a partir de una revisión del código:

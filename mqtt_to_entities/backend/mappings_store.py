@@ -210,9 +210,22 @@ def flush() -> None:
 
 def set_last_value(mapping_id: str, value: Any) -> None:
     # A successful push clears any previous error so the UI stops showing a
-    # stale failure once the mapping starts working.
-    _touch_runtime_state(mapping_id, {"last_value": value, "last_error": None})
+    # stale failure once the mapping starts working. last_update_at is what the
+    # staleness watchdog compares against.
+    _touch_runtime_state(
+        mapping_id,
+        {"last_value": value, "last_error": None, "last_update_at": time.time()},
+    )
 
 
 def set_last_error(mapping_id: str, error: str | None) -> None:
     _touch_runtime_state(mapping_id, {"last_error": error})
+
+
+def set_unknown(mapping_id: str, unknown_state: str) -> None:
+    """Blank a mapping's value without restarting its staleness clock."""
+    _touch_runtime_state(mapping_id, {"last_value": unknown_state, "last_error": None})
+
+
+def set_last_update_at(mapping_id: str, when: float) -> None:
+    _touch_runtime_state(mapping_id, {"last_update_at": when})

@@ -327,6 +327,49 @@ const PRECISION_OPTIONS = [
 
 const PRECISION_SAMPLE = 57.560001373291016;
 
+// Kept in sync with DEFAULT_STALE_TIMEOUT_SECONDS in the backend.
+const DEFAULT_STALE_TIMEOUT = 300;
+
+const STALE_TIMEOUT_OPTIONS = [
+  { value: "0", label: "Nunca (no marcar desconocido)" },
+  { value: "60", label: "1 minuto" },
+  { value: "300", label: "5 minutos (por defecto)" },
+  { value: "900", label: "15 minutos" },
+  { value: "1800", label: "30 minutos" },
+  { value: "3600", label: "1 hora" },
+  { value: "86400", label: "1 día" },
+];
+
+function populateStaleTimeoutSelect() {
+  const select = $("#cfg-stale-timeout");
+  select.innerHTML = "";
+  STALE_TIMEOUT_OPTIONS.forEach((opt) => {
+    const el = document.createElement("option");
+    el.value = opt.value;
+    el.textContent = opt.label;
+    select.appendChild(el);
+  });
+  select.value = String(DEFAULT_STALE_TIMEOUT);
+}
+
+function getSelectedStaleTimeout() {
+  return parseInt($("#cfg-stale-timeout").value, 10);
+}
+
+function setSelectedStaleTimeout(seconds) {
+  const select = $("#cfg-stale-timeout");
+  const value = seconds === null || seconds === undefined ? DEFAULT_STALE_TIMEOUT : seconds;
+  const known = Array.from(select.options).some((o) => o.value === String(value));
+  // An unlisted value (set by hand via the API) is preserved as its own option.
+  if (!known) {
+    const el = document.createElement("option");
+    el.value = String(value);
+    el.textContent = `${value} segundos`;
+    select.appendChild(el);
+  }
+  select.value = String(value);
+}
+
 function populatePrecisionSelect() {
   const select = $("#cfg-precision");
   select.innerHTML = "";
@@ -448,6 +491,7 @@ function openMappingModal(fieldPath) {
 function resetDomainConfigFields() {
   setSelectedUnit("");
   setSelectedPrecision(null);
+  setSelectedStaleTimeout(null);
   $("#cfg-on-values").value = "";
   $("#cfg-off-values").value = "";
   $("#cfg-min").value = "";
@@ -506,6 +550,11 @@ function updateDomainConfigVisibility() {
 }
 
 function buildDomainConfig(domain) {
+  // stale_timeout applies to every domain, so it is merged in once at the end.
+  return { ...buildDomainSpecificConfig(domain), stale_timeout: getSelectedStaleTimeout() };
+}
+
+function buildDomainSpecificConfig(domain) {
   const precision = getSelectedPrecision();
 
   if (domain === "sensor") {
@@ -617,8 +666,11 @@ function renderMappings() {
 
   mappings.forEach((mapping) => {
     const hasValue = mapping.last_value !== null && mapping.last_value !== undefined;
+    const isUnknown = mapping.last_value === "unknown";
     const statusHtml = mapping.last_error
       ? `<span class="cell-status error" title="${escapeHtml(mapping.last_error)}">error</span>`
+      : isUnknown
+      ? '<span class="cell-status waiting" title="Sin datos: broker desconectado o el topic dejó de publicar">desconocido</span>'
       : hasValue
       ? '<span class="cell-status ok">ok</span>'
       : '<span class="cell-status waiting">esperando dato</span>';
@@ -637,7 +689,13 @@ function renderMappings() {
       <td>${escapeHtml(mapping.field_path)}</td>
       <td>${escapeHtml(mapping.entity_id)}</td>
       <td>${escapeHtml(mapping.domain)}</td>
-      <td>${hasValue ? escapeHtml(String(mapping.last_value)) : "&mdash;"}</td>
+      <td>${
+        isUnknown
+          ? '<span class="value-unknown">desconocido</span>'
+          : hasValue
+          ? escapeHtml(String(mapping.last_value))
+          : "&mdash;"
+      }</td>
       <td>${statusHtml}</td>
       <td>
         <button class="edit-btn" data-id="${mapping.id}">Editar</button>
@@ -693,6 +751,7 @@ function filterMappings(mappings, filter) {
 
 function fillDomainConfig(domain, config) {
   setSelectedPrecision(config.precision ?? null);
+  setSelectedStaleTimeout(config.stale_timeout ?? null);
 
   if (domain === "sensor") {
     setSelectedUnit(config.unit_of_measurement);
@@ -929,6 +988,7 @@ async function init() {
   initTabs();
   populateUnitSelect();
   populatePrecisionSelect();
+  populateStaleTimeoutSelect();
 
   // Brokers first: the tree needs a selected broker before it can load.
   await loadBrokers();

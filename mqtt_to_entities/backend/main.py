@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +34,13 @@ HA_UNKNOWN_STATE = "unknown"
 # so the initial connection transitions don't blank the restored values.
 _startup_done = False
 
+# A topic that stops publishing leaves its entity showing a stale value, so each
+# mapping goes unknown after this long without data unless it overrides it.
+DEFAULT_STALE_TIMEOUT_SECONDS = 300.0
+STALE_CHECK_INTERVAL_SECONDS = 30.0
+
+_shutdown = threading.Event()
+
 
 def _on_mqtt_message(broker_id: str, topic: str, state: TopicState) -> None:
     for mapping in mappings_store.mappings_for_topic(topic, broker_id):
@@ -62,6 +71,65 @@ def _apply_mapping(mapping: dict[str, Any], state: TopicState) -> None:
         mappings_store.set_last_error(mapping["id"], error)
 
 
+def _mark_unknown(mapping: dict[str, Any], reason: str) -> None:
+    """Push Home Assistant's "unknown" state for one mapping."""
+    if mapping.get("last_value") == HA_UNKNOWN_STATE:
+        return  # already blanked; don't spam the API
+
+    ok, error = ha_api.set_state(mapping["entity_id"], HA_UNKNOWN_STATE)
+    if ok:
+        logger.info("%s -> unknown (%s)", mapping["entity_id"], reason)
+        mappings_store.set_unknown(mapping["id"], HA_UNKNOWN_STATE)
+    else:
+        mappings_store.set_last_error(mapping["id"], error)
+
+
+def _stale_timeout(mapping: dict[str, Any]) -> float | None:
+    """Seconds of silence before this mapping goes unknown, or None to disable."""
+    raw = mapping.get("domain_config", {}).get("stale_timeout")
+    if raw is None:
+        raw = DEFAULT_STALE_TIMEOUT_SECONDS
+    try:
+        timeout = float(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_STALE_TIMEOUT_SECONDS
+    return timeout if timeout > 0 else None
+
+
+def _check_stale_mappings() -> None:
+    """Blank entities whose topic stopped publishing.
+
+    The broker can stay connected while one device goes quiet (a Victron unit
+    leaving the bus), in which case the entity would otherwise keep showing its
+    last value forever.
+    """
+    now = time.time()
+    for mapping in mappings_store.list_mappings():
+        timeout = _stale_timeout(mapping)
+        if timeout is None:
+            continue
+        if mapping.get("last_value") in (None, HA_UNKNOWN_STATE):
+            continue
+
+        last_update = mapping.get("last_update_at")
+        if last_update is None:
+            # Pre-existing mapping from before this field existed: start its
+            # clock now instead of blanking it immediately.
+            mappings_store.set_last_update_at(mapping["id"], now)
+            continue
+
+        if now - last_update > timeout:
+            _mark_unknown(mapping, f"sin datos por {int(now - last_update)}s")
+
+
+def _stale_watchdog() -> None:
+    while not _shutdown.wait(STALE_CHECK_INTERVAL_SECONDS):
+        try:
+            _check_stale_mappings()
+        except Exception:
+            logger.exception("El chequeo de entidades sin datos falló")
+
+
 def _on_broker_status_change(broker_id: str, status: str) -> None:
     """Mark a broker's entities unknown while it is not connected.
 
@@ -81,11 +149,7 @@ def _on_broker_status_change(broker_id: str, status: str) -> None:
         # one may still be publishing; leave those alone.
         if mapping.get("broker_id") != broker_id:
             continue
-        ok, error = ha_api.set_state(mapping["entity_id"], HA_UNKNOWN_STATE)
-        if ok:
-            mappings_store.set_last_value(mapping["id"], HA_UNKNOWN_STATE)
-        else:
-            mappings_store.set_last_error(mapping["id"], error)
+        _mark_unknown(mapping, f"broker {status}")
 
 
 mqtt_pool = MqttPool(
@@ -133,11 +197,14 @@ def _restore_brokers() -> None:
     # From here on, losing a broker should blank its entities.
     _startup_done = True
 
+    threading.Thread(target=_stale_watchdog, daemon=True, name="stale-watchdog").start()
+
 
 @app.on_event("shutdown")
 def _flush_on_shutdown() -> None:
     # last_value/last_error are batched in memory; make sure the newest ones
     # reach disk when the add-on stops cleanly.
+    _shutdown.set()
     mappings_store.flush()
 
 
