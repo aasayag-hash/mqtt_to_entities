@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.14
+
+Correcciones encontradas en una revisión del código, incluidas dos que introdujo la versión 1.12:
+
+- **Corregido (importante)**: la configuración de los brokers (dirección, usuario y contraseña) se guardaba de una forma que podía perderse por completo si el add-on se cortaba justo durante la escritura, dejando también las entidades huérfanas. Ahora se guarda con el mismo método a prueba de cortes que ya usaban las entidades, y si el archivo llegara a estar dañado se conserva una copia en lugar de sobrescribirlo.
+- **Corregido**: el guardado periódico que agregó la 1.12 reescribía el archivo completo cada 30 segundos **aunque no hubiera ningún cambio**, incluso con el add-on sin recibir un solo mensaje. En una Raspberry Pi eso era desgaste de la tarjeta SD a cambio de nada. Ahora sólo escribe cuando hay algo nuevo.
+- **Corregido**: al guardar en disco, el add-on dejaba de procesar mensajes MQTT durante toda la escritura. Con una tarjeta SD lenta eso eran unos 260 milisegundos de pausa por guardado (alrededor de 130 mensajes demorados). Ahora la escritura ocurre por fuera y la pausa es de menos de 1 milisegundo.
+- **Corregido**: si se editaban dos brokers al mismo tiempo apuntándolos a la misma dirección, ambos podían aceptarse y quedaban dos conexiones al mismo servidor. Era el mismo problema que la 1.12 corrigió al **crear** un broker, que seguía presente al **editarlo**.
+
 ## 1.13
 
 - **Limpieza interna**: al rechazar el alta de un broker repetido, ya no se arma el objeto de conexión que luego se descartaba. No cambia nada de lo que se ve ni corrige ninguna falla; deja el código preparado para que eso no se convierta en un problema más adelante.

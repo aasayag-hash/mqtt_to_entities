@@ -409,19 +409,53 @@ class MqttPool:
         connection.disconnect()
         return True
 
-    def update(self, broker_id: str, config: BrokerConfig) -> BrokerConnection | None:
-        with self._lock:
-            connection = self._connections.get(broker_id)
-        if connection is None:
-            return None
-        # Reconnecting with the new settings is the only way to change host or
-        # credentials, so the topic cache starts fresh for the new target.
-        connection.disconnect()
-        return self.add(config, broker_id=broker_id, connect=True)
+    def update(
+        self,
+        broker_id: str,
+        config: BrokerConfig,
+        *,
+        check_duplicate: bool = False,
+    ) -> BrokerConnection | None:
+        """Repoint a broker at new settings, replacing its connection.
 
-    def _find_by_endpoint_locked(self, host: str, port: int) -> BrokerConnection | None:
+        The duplicate check and the swap happen in one critical section: doing
+        them as two separate lock acquisitions let two concurrent edits both
+        pass the check and end up with two connections to the same endpoint.
+        """
+        with self._lock:
+            old = self._connections.get(broker_id)
+            if old is None:
+                return None
+            if check_duplicate:
+                # Ignore the broker being edited; it is about to be replaced.
+                duplicate = self._find_by_endpoint_locked(
+                    config.host, config.port, exclude_id=broker_id
+                )
+                if duplicate is not None:
+                    raise DuplicateBrokerError(duplicate)
+            # Reconnecting with the new settings is the only way to change host
+            # or credentials, so the topic cache starts fresh for the new target.
+            replacement = BrokerConnection(
+                broker_id,
+                config,
+                on_message=self._on_message_cb,
+                on_status_change=self._on_status_change_cb,
+            )
+            self._connections[broker_id] = replacement
+
+        # Network work happens outside the lock: disconnect() and connect() both
+        # do I/O, and holding the pool lock across that stalls every other route.
+        old.disconnect()
+        replacement.connect()
+        return replacement
+
+    def _find_by_endpoint_locked(
+        self, host: str, port: int, *, exclude_id: str | None = None
+    ) -> BrokerConnection | None:
         """Same as find_by_endpoint, but assumes self._lock is already held."""
         for connection in self._connections.values():
+            if connection.id == exclude_id:
+                continue
             if connection.config.host == host and connection.config.port == port:
                 return connection
         return None

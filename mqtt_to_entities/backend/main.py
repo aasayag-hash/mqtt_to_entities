@@ -371,20 +371,22 @@ def update_broker(broker_id: str, config: BrokerConfigIn) -> dict[str, Any]:
     if existing is None:
         raise HTTPException(status_code=404, detail="Broker no encontrado")
 
-    duplicate = mqtt_pool.find_by_endpoint(config.host, config.port)
-    if duplicate is not None and duplicate.id != broker_id:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Ya existe otro broker para {config.host}:{config.port}",
-        )
-
     new_config = _to_broker_config(config)
     # The API never returns stored passwords, so an omitted/blank one on edit
     # means "keep the current password" rather than "clear it".
     if new_config.password is None:
         new_config.password = existing.config.password
 
-    connection = mqtt_pool.update(broker_id, new_config)
+    # The duplicate check happens inside update(), under the pool lock: checking
+    # here first let two concurrent edits both pass and create two connections
+    # to the same endpoint.
+    try:
+        connection = mqtt_pool.update(broker_id, new_config, check_duplicate=True)
+    except DuplicateBrokerError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Ya existe otro broker para {config.host}:{config.port}",
+        )
     if connection is None:
         raise HTTPException(status_code=404, detail="Broker no encontrado")
     _persist_brokers()

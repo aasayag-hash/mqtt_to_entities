@@ -18,6 +18,17 @@ MAPPINGS_FILE = DATA_DIR / "mappings.json"
 
 _lock = threading.RLock()
 
+# Serializes the disk write itself, so it can happen OUTSIDE _lock. Writing under
+# _lock meant a slow SD card (fsync of the whole store) stalled every MQTT message,
+# because mappings_for_topic needs the same lock: measured 260ms of blocked hot
+# path per 300ms write. This lock only orders writers against each other; the
+# file's atomicity comes from os.replace, not from holding _lock.
+_disk_lock = threading.Lock()
+
+# Monotonic counter so a slow writer can tell its snapshot has been superseded by
+# a newer one and skip its own write.
+_write_seq = 0
+
 # In-memory copy of the file. Every MQTT message needs the mapping list, and the
 # add-on subscribes to "#", so re-reading the file per message meant hundreds of
 # reads per second. The file is only read on first access; writes update both.
@@ -27,16 +38,23 @@ _cache: list[dict[str, Any]] | None = None
 RUNTIME_FLUSH_SECONDS = 10.0
 _last_flush = 0.0
 
+# True when runtime state changed in memory without reaching the disk yet. The
+# watchdog calls flush() every 30s, and writing unconditionally rewrote the whole
+# store even on a fully idle add-on -- continuous SD-card writes for no reason.
+_dirty = False
 
-def _atomic_write(data: list[dict[str, Any]]) -> None:
+
+def _atomic_write(payload: str) -> None:
     """Write via temp file + os.replace so a crash can't truncate the store.
 
     A plain write_text() opens with "w" (truncate) and then writes, so being
     killed mid-write left a 0-byte or partial file that broke the add-on
     permanently. os.replace is atomic on the same filesystem.
+
+    Takes an already-serialized payload so the caller can hold _lock only while
+    snapshotting, never across the fsync.
     """
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(data, indent=2)
 
     fd, tmp_path = tempfile.mkstemp(dir=str(DATA_DIR), prefix=".mappings-", suffix=".tmp")
     try:
@@ -100,8 +118,39 @@ def _get_cache() -> list[dict[str, Any]]:
     return _cache
 
 
-def _persist() -> None:
-    _atomic_write(_get_cache())
+def _snapshot() -> tuple[str, int]:
+    """Serialize the cache for writing. Must be called with _lock held."""
+    global _dirty, _write_seq
+
+    payload = json.dumps(_get_cache(), indent=2)
+    _write_seq += 1
+    # Cleared optimistically: _write_snapshot restores it if the write fails, and
+    # any change arriving during the write sets it again, so nothing is lost.
+    _dirty = False
+    return payload, _write_seq
+
+
+def _write_snapshot(payload: str, seq: int) -> None:
+    """Write a snapshot to disk. Must be called WITHOUT _lock held.
+
+    Keeping the fsync out of _lock is the point: mappings_for_topic needs that
+    same lock for every MQTT message, and writing under it stalled the hot path
+    for the duration of the disk write (measured 260ms on a slow SD card).
+    """
+    global _dirty
+
+    try:
+        with _disk_lock:
+            # A newer snapshot superseded this one; writing it would undo that
+            # newer state. The newer writer is queued behind us on _disk_lock.
+            if seq != _write_seq:
+                return
+            _atomic_write(payload)
+    except BaseException:
+        with _lock:
+            # Never reached the disk, so the state is still pending.
+            _dirty = True
+        raise
 
 
 def list_mappings() -> list[dict[str, Any]]:
@@ -149,18 +198,25 @@ def create_mapping(mapping: dict[str, Any]) -> dict[str, Any]:
         mapping.setdefault("last_value", None)
         mapping.setdefault("last_error", None)
         mappings.append(mapping)
-        _persist()
-        return copy.deepcopy(mapping)
+        result = copy.deepcopy(mapping)
+        payload, seq = _snapshot()
+    _write_snapshot(payload, seq)
+    return result
 
 
 def update_mapping(mapping_id: str, updates: dict[str, Any]) -> dict[str, Any] | None:
     with _lock:
+        result = None
         for mapping in _get_cache():
             if mapping["id"] == mapping_id:
                 mapping.update(copy.deepcopy(updates))
-                _persist()
-                return copy.deepcopy(mapping)
-        return None
+                result = copy.deepcopy(mapping)
+                break
+        if result is None:
+            return None
+        payload, seq = _snapshot()
+    _write_snapshot(payload, seq)
+    return result
 
 
 def delete_mapping(mapping_id: str) -> bool:
@@ -171,8 +227,9 @@ def delete_mapping(mapping_id: str) -> bool:
         if len(remaining) == len(mappings):
             return False
         _cache = remaining
-        _persist()
-        return True
+        payload, seq = _snapshot()
+    _write_snapshot(payload, seq)
+    return True
 
 
 def _touch_runtime_state(mapping_id: str, updates: dict[str, Any]) -> None:
@@ -185,7 +242,7 @@ def _touch_runtime_state(mapping_id: str, updates: dict[str, Any]) -> None:
     a hard kill is acceptable; the mapping definitions themselves still persist
     immediately via create/update/delete.
     """
-    global _last_flush
+    global _last_flush, _dirty
     with _lock:
         found = False
         for mapping in _get_cache():
@@ -196,18 +253,33 @@ def _touch_runtime_state(mapping_id: str, updates: dict[str, Any]) -> None:
         if not found:
             return
 
+        _dirty = True
         now = time.monotonic()
-        if now - _last_flush >= RUNTIME_FLUSH_SECONDS:
-            _last_flush = now
-            _persist()
+        if now - _last_flush < RUNTIME_FLUSH_SECONDS:
+            return
+        _last_flush = now
+        payload, seq = _snapshot()
+
+    # Outside the lock: this runs on paho's network thread, once per matching
+    # MQTT message, and must not block the other brokers' threads on the disk.
+    _write_snapshot(payload, seq)
 
 
 def flush() -> None:
-    """Force pending runtime state to disk (used on shutdown)."""
+    """Write pending runtime state to disk, if there is any.
+
+    Called on shutdown and every 30s by the staleness watchdog. It is a no-op
+    when nothing changed: writing unconditionally rewrote the whole store on a
+    completely idle add-on, which is the SD-card write amplification this cache
+    exists to avoid in the first place.
+    """
     global _last_flush
     with _lock:
+        if not _dirty:
+            return
         _last_flush = time.monotonic()
-        _persist()
+        payload, seq = _snapshot()
+    _write_snapshot(payload, seq)
 
 
 def set_last_value(mapping_id: str, value: Any) -> None:
